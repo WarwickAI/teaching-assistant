@@ -1,0 +1,71 @@
+package main
+
+import (
+	"cmp"
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/anthropics/anthropic-sdk-go"
+
+	"teaching-assistant/server/internal/api"
+	"teaching-assistant/server/internal/db"
+)
+
+type Config struct {
+	Address       string
+	DatabaseURL   string
+	InternalToken string
+}
+
+func loadConfig() (Config, error) {
+	cfg := Config{
+		Address:       cmp.Or(os.Getenv("ADDRESS"), "127.0.0.1:8080"),
+		DatabaseURL:   os.Getenv("DATABASE_URL"),
+		InternalToken: os.Getenv("INTERNAL_TOKEN"),
+	}
+
+	var errs []error
+	if cfg.DatabaseURL == "" {
+		errs = append(errs, errors.New("DATABASE_URL is required"))
+	}
+	if cfg.InternalToken == "" {
+		errs = append(errs, errors.New("INTERNAL_TOKEN is required"))
+	}
+	return cfg, errors.Join(errs...)
+}
+
+func main() {
+	cfg, err := loadConfig()
+	if err != nil {
+		slog.Error("invalid config", "err", err)
+		os.Exit(1)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	pool, err := db.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("database", "err", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+
+	handler := api.New(db.New(pool), anthropic.NewClient(), cfg.InternalToken)
+	httpServer := &http.Server{Addr: cfg.Address, Handler: handler, ReadHeaderTimeout: 5 * time.Second}
+	go func() {
+		<-ctx.Done()
+		httpServer.Shutdown(context.Background()) // lets in-flight chats finish and be saved
+	}()
+	slog.Info("listening", "addr", cfg.Address)
+	if err := httpServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		slog.Error("server stopped", "err", err)
+		os.Exit(1)
+	}
+}

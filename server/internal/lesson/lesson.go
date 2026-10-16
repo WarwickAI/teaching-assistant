@@ -1,44 +1,24 @@
-// Package lesson reads the teacher-editable lesson settings and material.
+// Package lesson builds the assistant's instructions from the teacher's lesson settings and material.
 package lesson
 
 import (
+	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"teaching-assistant/server/internal/db"
 )
 
-// The teacher edits these from the dashboard while the server runs, so they're read on every use.
-const (
-	configPath = "../config.yaml"
-	contextDir = "../context"
-)
-
-type Config struct {
-	LessonName     string  `yaml:"lesson_name"`
-	Model          string  `yaml:"model"`
-	SpendingCapUSD float64 `yaml:"spending_cap_usd"`
-	Resources      []struct {
-		Title string `yaml:"title"`
-		URL   string `yaml:"url"`
-	} `yaml:"resources"`
-}
-
-func ReadConfig() (Config, error) {
-	var c Config
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return c, err
-	}
-	return c, yaml.Unmarshal(data, &c)
+type Resource struct {
+	Title string `json:"title"`
+	URL   string `json:"url"`
 }
 
 // SystemPrompt gives Claude its role, the lesson's resource links and its Markdown context files.
-func SystemPrompt(cfg Config) (string, error) {
-	files, err := filepath.Glob(filepath.Join(contextDir, "*.md")) // sorted, so the prompt stays cacheable
-	if err != nil {
+// The files should be sorted, so the prompt stays cacheable.
+func SystemPrompt(settings db.Setting, files []db.ContextFile) (string, error) {
+	var resources []Resource
+	if err := json.Unmarshal(settings.Resources, &resources); err != nil {
 		return "", err
 	}
 	var b strings.Builder
@@ -53,20 +33,16 @@ Use your tools sparingly; most questions need none:
 - report_struggle: when a student is still stuck after your first explanation, report it once per topic so the teacher can improve the lesson material. You don't need to mention this to the student.
 - web_search: only when the lesson material doesn't cover something you need to check, such as current library documentation.
 - code_execution: only when running code would really help, such as checking why a student's code fails.
-`, cfg.LessonName)
-	if len(cfg.Resources) > 0 {
+`, settings.LessonName)
+	if len(resources) > 0 {
 		b.WriteString("\nPoint students to these lesson resources when they would help:\n<resources>\n")
-		for _, r := range cfg.Resources {
+		for _, r := range resources {
 			fmt.Fprintf(&b, "- [%s](%s)\n", r.Title, r.URL)
 		}
 		b.WriteString("</resources>\n")
 	}
 	for _, f := range files {
-		data, err := os.ReadFile(f)
-		if err != nil {
-			return "", err
-		}
-		fmt.Fprintf(&b, "\n<lesson_material file=%q>\n%s\n</lesson_material>\n", filepath.Base(f), data)
+		fmt.Fprintf(&b, "\n<lesson_material file=%q>\n%s\n</lesson_material>\n", f.Name, f.Content)
 	}
 	return b.String(), nil
 }

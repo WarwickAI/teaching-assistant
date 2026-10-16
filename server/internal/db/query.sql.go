@@ -22,6 +22,16 @@ func (q *Queries) CurrentSession(ctx context.Context) (LessonSession, error) {
 	return i, err
 }
 
+const deleteContextFile = `-- name: DeleteContextFile :exec
+DELETE FROM context_files
+WHERE name = $1
+`
+
+func (q *Queries) DeleteContextFile(ctx context.Context, name string) error {
+	_, err := q.db.Exec(ctx, deleteContextFile, name)
+	return err
+}
+
 const endSession = `-- name: EndSession :execrows
 UPDATE lesson_sessions SET ended_at = now()
 WHERE ended_at IS NULL
@@ -35,7 +45,26 @@ func (q *Queries) EndSession(ctx context.Context) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const getSettings = `-- name: GetSettings :one
+
+SELECT id, lesson_name, spending_cap_usd, resources FROM settings
+`
+
+// Lesson settings
+func (q *Queries) GetSettings(ctx context.Context) (Setting, error) {
+	row := q.db.QueryRow(ctx, getSettings)
+	var i Setting
+	err := row.Scan(
+		&i.ID,
+		&i.LessonName,
+		&i.SpendingCapUsd,
+		&i.Resources,
+	)
+	return i, err
+}
+
 const insertMessage = `-- name: InsertMessage :exec
+
 INSERT INTO messages (session_started_at, student_id, role, content)
 VALUES ($1, $2, $3, $4)
 `
@@ -47,6 +76,7 @@ type InsertMessageParams struct {
 	Content          string    `json:"content"`
 }
 
+// Students
 func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) error {
 	_, err := q.db.Exec(ctx, insertMessage,
 		arg.SessionStartedAt,
@@ -126,6 +156,56 @@ func (q *Queries) LatestSession(ctx context.Context) (LessonSession, error) {
 	return i, err
 }
 
+const listContextFileNames = `-- name: ListContextFileNames :many
+SELECT name FROM context_files
+ORDER BY name
+`
+
+func (q *Queries) ListContextFileNames(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listContextFileNames)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listContextFiles = `-- name: ListContextFiles :many
+SELECT name, content, updated_at FROM context_files
+ORDER BY name
+`
+
+func (q *Queries) ListContextFiles(ctx context.Context) ([]ContextFile, error) {
+	rows, err := q.db.Query(ctx, listContextFiles)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ContextFile{}
+	for rows.Next() {
+		var i ContextFile
+		if err := rows.Scan(&i.Name, &i.Content, &i.UpdatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStudentMessages = `-- name: ListStudentMessages :many
 SELECT id, session_started_at, student_id, role, content, created_at FROM messages
 WHERE session_started_at = $1 AND student_id = $2
@@ -164,57 +244,19 @@ func (q *Queries) ListStudentMessages(ctx context.Context, arg ListStudentMessag
 	return items, nil
 }
 
-const recentAttendance = `-- name: RecentAttendance :many
-
-SELECT s.started_at, count(a.student_id) AS students
-FROM lesson_sessions s
-LEFT JOIN attendance a ON a.session_started_at = s.started_at
-GROUP BY s.started_at
-ORDER BY s.started_at DESC
-LIMIT 5
-`
-
-type RecentAttendanceRow struct {
-	StartedAt time.Time `json:"startedAt"`
-	Students  int64     `json:"students"`
-}
-
-// Dashboard
-func (q *Queries) RecentAttendance(ctx context.Context) ([]RecentAttendanceRow, error) {
-	rows, err := q.db.Query(ctx, recentAttendance)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []RecentAttendanceRow{}
-	for rows.Next() {
-		var i RecentAttendanceRow
-		if err := rows.Scan(&i.StartedAt, &i.Students); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const recordAttendance = `-- name: RecordAttendance :exec
-
-INSERT INTO attendance (session_started_at, student_id)
+const putContextFile = `-- name: PutContextFile :exec
+INSERT INTO context_files (name, content)
 VALUES ($1, $2)
-ON CONFLICT DO NOTHING
+ON CONFLICT (name) DO UPDATE SET content = EXCLUDED.content, updated_at = now()
 `
 
-type RecordAttendanceParams struct {
-	SessionStartedAt time.Time `json:"sessionStartedAt"`
-	StudentID        string    `json:"studentId"`
+type PutContextFileParams struct {
+	Name    string `json:"name"`
+	Content string `json:"content"`
 }
 
-// Students
-func (q *Queries) RecordAttendance(ctx context.Context, arg RecordAttendanceParams) error {
-	_, err := q.db.Exec(ctx, recordAttendance, arg.SessionStartedAt, arg.StudentID)
+func (q *Queries) PutContextFile(ctx context.Context, arg PutContextFileParams) error {
+	_, err := q.db.Exec(ctx, putContextFile, arg.Name, arg.Content)
 	return err
 }
 
@@ -243,11 +285,13 @@ func (q *Queries) SaveFeedback(ctx context.Context, arg SaveFeedbackParams) erro
 }
 
 const sessionFeedback = `-- name: SessionFeedback :many
+
 SELECT session_started_at, student_id, rating, comment, created_at FROM feedback
 WHERE session_started_at = $1
 ORDER BY created_at DESC
 `
 
+// Dashboard
 func (q *Queries) SessionFeedback(ctx context.Context, sessionStartedAt time.Time) ([]Feedback, error) {
 	rows, err := q.db.Query(ctx, sessionFeedback, sessionStartedAt)
 	if err != nil {
@@ -262,39 +306,6 @@ func (q *Queries) SessionFeedback(ctx context.Context, sessionStartedAt time.Tim
 			&i.StudentID,
 			&i.Rating,
 			&i.Comment,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const sessionMessages = `-- name: SessionMessages :many
-SELECT id, session_started_at, student_id, role, content, created_at FROM messages
-WHERE session_started_at = $1
-ORDER BY id
-`
-
-func (q *Queries) SessionMessages(ctx context.Context, sessionStartedAt time.Time) ([]Message, error) {
-	rows, err := q.db.Query(ctx, sessionMessages, sessionStartedAt)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Message{}
-	for rows.Next() {
-		var i Message
-		if err := rows.Scan(
-			&i.ID,
-			&i.SessionStartedAt,
-			&i.StudentID,
-			&i.Role,
-			&i.Content,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -353,39 +364,6 @@ func (q *Queries) SessionStruggles(ctx context.Context, sessionStartedAt time.Ti
 	return items, nil
 }
 
-const sessionStudents = `-- name: SessionStudents :many
-SELECT a.student_id,
-       (SELECT count(*) FROM attendance x WHERE x.student_id = a.student_id) AS sessions_attended
-FROM attendance a
-WHERE a.session_started_at = $1
-ORDER BY a.joined_at
-`
-
-type SessionStudentsRow struct {
-	StudentID        string `json:"studentId"`
-	SessionsAttended int64  `json:"sessionsAttended"`
-}
-
-func (q *Queries) SessionStudents(ctx context.Context, sessionStartedAt time.Time) ([]SessionStudentsRow, error) {
-	rows, err := q.db.Query(ctx, sessionStudents, sessionStartedAt)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []SessionStudentsRow{}
-	for rows.Next() {
-		var i SessionStudentsRow
-		if err := rows.Scan(&i.StudentID, &i.SessionsAttended); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const sessionUsage = `-- name: SessionUsage :many
 SELECT created_at,
        (input_tokens + output_tokens + cache_read_tokens + cache_write_tokens)::bigint AS tokens,
@@ -433,4 +411,19 @@ func (q *Queries) StartSession(ctx context.Context) (LessonSession, error) {
 	var i LessonSession
 	err := row.Scan(&i.StartedAt, &i.EndedAt)
 	return i, err
+}
+
+const updateSettings = `-- name: UpdateSettings :exec
+UPDATE settings SET lesson_name = $1, spending_cap_usd = $2, resources = $3
+`
+
+type UpdateSettingsParams struct {
+	LessonName     string  `json:"lessonName"`
+	SpendingCapUsd float64 `json:"spendingCapUsd"`
+	Resources      []byte  `json:"resources"`
+}
+
+func (q *Queries) UpdateSettings(ctx context.Context, arg UpdateSettingsParams) error {
+	_, err := q.db.Exec(ctx, updateSettings, arg.LessonName, arg.SpendingCapUsd, arg.Resources)
+	return err
 }

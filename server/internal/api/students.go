@@ -11,7 +11,7 @@ import (
 	"teaching-assistant/server/internal/db"
 )
 
-// join records the student as attending the open lesson and returns their conversation so far.
+// join returns the student's conversation so far in the open lesson.
 func (s *server) join(w http.ResponseWriter, r *http.Request) {
 	student, ok := studentID(r)
 	if !ok {
@@ -27,10 +27,9 @@ func (s *server) join(w http.ResponseWriter, r *http.Request) {
 		internalError(w, "join", err)
 		return
 	}
-	key := db.RecordAttendanceParams{SessionStartedAt: session.StartedAt, StudentID: student}
-	err = s.queries.RecordAttendance(r.Context(), key)
-	messages, listErr := s.queries.ListStudentMessages(r.Context(), db.ListStudentMessagesParams(key))
-	if err = errors.Join(err, listErr); err != nil {
+	key := db.ListStudentMessagesParams{SessionStartedAt: session.StartedAt, StudentID: student}
+	messages, err := s.queries.ListStudentMessages(r.Context(), key)
+	if err != nil {
 		internalError(w, "join", err)
 		return
 	}

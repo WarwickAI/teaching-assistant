@@ -79,30 +79,27 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "There's no lesson in progress.", http.StatusConflict)
 		return
 	}
-	cfg, cfgErr := lesson.ReadConfig()
-	if err = errors.Join(err, cfgErr); err != nil {
+	settings, settingsErr := s.queries.GetSettings(ctx)
+	if err = errors.Join(err, settingsErr); err != nil {
 		internalError(w, "chat setup", err)
 		return
 	}
-	p, ok := prices[cfg.Model]
-	if !ok {
-		internalError(w, "chat setup", fmt.Errorf("no price for model %q", cfg.Model))
-		return
-	}
+	p := prices[s.model]
 	spent, err := s.queries.SessionSpendMicros(ctx, session.StartedAt)
 	if err != nil {
 		internalError(w, "session spend", err)
 		return
 	}
-	if float64(spent)/1e6 >= cfg.SpendingCapUSD {
+	if float64(spent)/1e6 >= settings.SpendingCapUsd {
 		http.Error(w, "The class has reached its spending limit for this lesson.", http.StatusTooManyRequests)
 		return
 	}
 
-	system, err := lesson.SystemPrompt(cfg)
+	files, err := s.queries.ListContextFiles(ctx)
+	system, promptErr := lesson.SystemPrompt(settings, files)
 	key := db.ListStudentMessagesParams{SessionStartedAt: session.StartedAt, StudentID: student}
 	history, histErr := s.queries.ListStudentMessages(ctx, key)
-	if err = errors.Join(err, histErr); err != nil {
+	if err = errors.Join(err, promptErr, histErr); err != nil {
 		internalError(w, "chat setup", err)
 		return
 	}
@@ -148,7 +145,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 	setWorking(true)
 
 	params := anthropic.MessageNewParams{
-		Model:        cfg.Model,
+		Model:        s.model,
 		MaxTokens:    16000,
 		System:       []anthropic.TextBlockParam{{Text: system}},
 		Messages:     messages,
@@ -187,7 +184,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		streamErr = stream.Err()
 		stream.Close()
 		if message.ID != "" {
-			s.saveUsage(ctx, session.StartedAt, student, cfg.Model, p, message.Usage)
+			s.saveUsage(ctx, session.StartedAt, student, s.model, p, message.Usage)
 		}
 		if streamErr != nil || (message.StopReason != anthropic.StopReasonToolUse && message.StopReason != anthropic.StopReasonPauseTurn) {
 			break

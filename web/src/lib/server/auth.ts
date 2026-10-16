@@ -1,27 +1,27 @@
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { redirect, type Cookies } from '@sveltejs/kit';
-import { readConfig } from './config';
+import { env } from '$env/dynamic/private';
 
-const sessions = new Map<string, number>();
-export function secretMatches(value: string) {
-	const secret = readConfig().secret_word;
-	if (typeof secret !== 'string' || !secret) return false;
-	const actual = Buffer.from(value);
-	const expected = Buffer.from(secret);
+const sameText = (a: string, b: string) => {
+	const actual = Buffer.from(a);
+	const expected = Buffer.from(b);
 	return actual.length === expected.length && timingSafeEqual(actual, expected);
-}
+};
+
+export const passwordMatches = (value: string) => !!env.INSTRUCTOR_PASSWORD && sameText(value, env.INSTRUCTOR_PASSWORD);
+
+// Instructor sessions are signed rather than stored, so they survive the app sleeping and restarting.
+const sign = (expires: string) => createHmac('sha256', env.INSTRUCTOR_PASSWORD ?? '').update(expires).digest('hex');
+
 export function signInTeacher(cookies: Cookies) {
-	for (const [token, expires] of sessions) if (expires < Date.now()) sessions.delete(token);
-	const token = randomBytes(32).toString('hex');
-	sessions.set(token, Date.now() + 12 * 60 * 60 * 1000);
-	cookies.set('teacher_session', token, { path: '/', httpOnly: true, sameSite: 'strict', maxAge: 43200 });
+	const expires = String(Date.now() + 12 * 60 * 60 * 1000);
+	cookies.set('teacher_session', `${expires}.${sign(expires)}`, { path: '/', httpOnly: true, sameSite: 'strict', maxAge: 43200 });
 	cookies.delete('student_id', { path: '/' });
 }
 export function requireTeacher(cookies: Cookies) {
-	const token = cookies.get('teacher_session') ?? '';
-	if ((sessions.get(token) ?? 0) <= Date.now()) redirect(303, '/');
+	const [expires = '', signature = ''] = (cookies.get('teacher_session') ?? '').split('.');
+	if (!env.INSTRUCTOR_PASSWORD || Number(expires) <= Date.now() || !sameText(signature, sign(expires))) redirect(303, '/login');
 }
 export function signOutTeacher(cookies: Cookies) {
-	sessions.delete(cookies.get('teacher_session') ?? '');
 	cookies.delete('teacher_session', { path: '/' });
 }

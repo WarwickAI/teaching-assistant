@@ -1,26 +1,39 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { enhance } from '$app/forms';
-	import { invalidateAll } from '$app/navigation';
 	import type { PageData } from './$types';
-	import * as Message from '$lib/components/ai-elements/message';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
 	import Expand from '@lucide/svelte/icons/expand';
 	import Upload from '@lucide/svelte/icons/upload';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import X from '@lucide/svelte/icons/x';
+	import Undo from '@lucide/svelte/icons/undo-2';
 
 	let { data }: { data: PageData } = $props();
-	let { attendance, students, feedback, struggles, spending, spent: totalSpent } = $derived(data.dashboard);
+	// The page load gives the first snapshot; the stream replaces it every 3 seconds.
+	let live = $state<PageData['dashboard'] | null>(null);
+	let dashboard = $derived(live ?? data.dashboard);
+	let { feedback, struggles, spending, spent: totalSpent } = $derived(dashboard);
+	let visible = $state(true);
 	$effect(() => {
-		const timer = setInterval(invalidateAll, 5000);
-		return () => clearInterval(timer);
+		if (!visible) return; // a dashboard left in a background tab shouldn't keep the server awake
+		const source = new EventSource('/teacher/stream');
+		source.onmessage = (event) => (live = JSON.parse(event.data));
+		return () => source.close();
 	});
 	let confirmEnd = $state(false);
-	let confirmShutdown = $state(false);
-	let shutDown = $state(false);
-	let qrExpanded = $state(false);
+	let presenter = $state<HTMLElement | null>(null);
+	let presenting = $state(false);
+	async function present() {
+		presenting = true;
+		await tick();
+		presenter?.requestFullscreen?.().catch(() => {}); // where full screen isn't allowed, the overlay still fills the window
+	}
+	function stopPresenting() {
+		presenting = false;
+		if (document.fullscreenElement) void document.exitFullscreen();
+	}
 	let lessonName = $state('');
 	let spendingCap = $state<number | undefined>(untrack(() => data.dashboard.usage.spendingCap));
 	const currency = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'USD' });
@@ -29,19 +42,8 @@
 	let spendingCeiling = $derived(Math.max(1, Math.ceil(totalSpent)));
 	let spendingWidth = $state(380);
 	let spendingHeight = $state(210);
-	let attendanceWidth = $state(400);
-	let attendanceHeight = $state(174);
 	const spendingX = (i: number) => 44 + i * Math.max(0, spendingWidth - 68) / Math.max(1, spending.length - 1);
 	const spendingY = (amount: number) => spendingHeight - 28 - amount / spendingCeiling * Math.max(0, spendingHeight - 40);
-	const attendanceX = (i: number) => 32 + i * Math.max(0, attendanceWidth - 56) / Math.max(1, attendance.length - 1);
-	let attendanceStep = $derived.by(() => {
-		const rough = Math.max(1, ...attendance.map((item) => item.count)) / 4;
-		const magnitude = 10 ** Math.floor(Math.log10(rough));
-		return Math.max(1, [1, 2, 5, 10].map((m) => m * magnitude).find((step) => step >= rough)!);
-	});
-	let attendanceTicks = $derived(Array.from({ length: Math.ceil(Math.max(1, ...attendance.map((item) => item.count)) / attendanceStep) }, (_, i) => (i + 1) * attendanceStep));
-	let attendanceCeiling = $derived(attendanceTicks.at(-1)!);
-	const attendanceY = (count: number) => attendanceHeight - 28 - count / attendanceCeiling * Math.max(0, attendanceHeight - 40);
 	let spendingPoints = $derived(spending.map((point, i) => `${spendingX(i)},${spendingY(point.amount)}`).join(' '));
 	let resources = $state<{ title: string; url: string }[]>([]);
 	let setupLoaded = $state(false);
@@ -53,13 +55,10 @@
 		}
 	});
 	let pendingFiles = $state<File[]>([]);
+	let removedFiles = $state<string[]>([]);
 	let uploadError = $state('');
 	let fileInput: HTMLInputElement;
-	let messageCount = $derived(students.reduce((total, student) => total + student.messages.length, 0));
 	let averageRating = $derived(feedback.reduce((total, item) => total + item.rating, 0) / (feedback.length || 1));
-	let latestAttendance = $derived(attendance.at(-1)?.count ?? 0);
-	let attendanceChange = $derived(latestAttendance - (attendance.at(-2)?.count ?? latestAttendance));
-	let attendancePoints = $derived(attendance.map((item, i) => `${attendanceX(i)},${attendanceY(item.count)}`).join(' '));
 	let ratingCounts = $derived([1, 2, 3, 4, 5].map((rating) => feedback.filter((item) => item.rating === rating).length));
 	const ratingColors = ['#d7b0a5', '#c8b68c', '#a9b9a0', '#8fa6ba', '#648d83'];
 	let ratingSlices = $derived(ratingCounts.map((count, i) => {
@@ -70,7 +69,7 @@
 	}));
 
 
-	let splits = $state([78.0339, 45.6483, 56.2691, 45.066]);
+	let splits = $state([78.0339, 45.6483, 50]);
 
 	function horizontalWheel(node: HTMLElement) {
 		function wheel(event: WheelEvent) {
@@ -173,8 +172,7 @@
 		uploadError = '';
 		for (const file of Array.from(files)) {
 			if (!/\.md$/i.test(file.name)) { uploadError = 'Only .md files are accepted.'; continue; }
-			if (data.files.includes(file.name) || pendingFiles.some((item) => item.name === file.name)) { uploadError = `${file.name} is already listed.`; continue; }
-			pendingFiles = [...pendingFiles, file];
+			pendingFiles = [...pendingFiles.filter((item) => item.name !== file.name), file]; // the newest upload of a name wins
 		}
 	}
 </script>
@@ -191,14 +189,13 @@
 		<form method="POST" action="?/settings" enctype="multipart/form-data" use:enhance={({ formData }) => {
 			formData.set('settings', JSON.stringify({ lessonName, resources, spendingCap }));
 			for (const file of pendingFiles) formData.append('files', file);
-			return async ({ result, update }) => { if (result.type === 'success') pendingFiles = []; await update(); };
+			for (const name of removedFiles) formData.append('remove', name);
+			return async ({ result, update }) => { if (result.type === 'success') { pendingFiles = []; removedFiles = []; } await update(); };
 		}}><Button variant="secondary" type="submit" class="gap-2 rounded-full px-3 font-normal" disabled={!validCap}>Save settings</Button></form>
-		{#if data.lessonState === 'waiting'}
-			<form method="POST" action="?/start" use:enhance><Button type="submit" class="gap-2 rounded-full px-3 font-normal">Start session</Button></form>
-		{:else if data.lessonState === 'started'}
-			<Button class="gap-2 rounded-full px-3 font-normal" onclick={() => confirmEnd = true}>End lesson</Button>
+		{#if data.lessonState === 'started'}
+			<Button class="gap-2 rounded-full px-3 font-normal" onclick={() => confirmEnd = true}>Turn lab off</Button>
 		{:else}
-			<Button class="gap-2 rounded-full px-3 font-normal" onclick={() => confirmShutdown = true} disabled={shutDown}>{shutDown ? 'Shutting down…' : 'Shut down'}</Button>
+			<form method="POST" action="?/start" use:enhance><Button type="submit" class="gap-2 rounded-full px-3 font-normal">Turn lab on</Button></form>
 		{/if}
 	</div>
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex (The horizontal scroll region must be keyboard focusable.) -->
@@ -207,12 +204,12 @@
 <section class="panel join-panel" aria-labelledby="join-title">
 			<div class="flex items-center justify-between gap-3">
 				<h2 id="join-title">Join the session</h2>
-				<Button variant="secondary" class="gap-2 rounded-full px-3 font-normal" onclick={() => qrExpanded = true}><Expand class="size-3.5" />Expand</Button>
+				<Button variant="secondary" class="gap-2 rounded-full px-3 font-normal" onclick={present}><Expand class="size-3.5" />Present</Button>
 			</div>
 			<div class="join-content">
-				<img src={data.qr} alt="QR code for the student sign-in link" width="640" height="640" />
+				<img src={data.qr} alt="QR code for the lab" width="640" height="640" />
 			</div>
-			<a href={data.sessionUrl} class="shrink-0 break-all text-center text-sm text-muted-foreground hover:underline">{data.sessionUrl}</a>
+			<p class="shrink-0 text-center text-sm text-muted-foreground">{data.siteAddress}{data.lessonState === 'started' ? '' : ', turn the lab on to let students in'}</p>
 		</section>
 		<button type="button" class="card-resizer" use:resizeCards={0} aria-label="Resize join and settings cards" title="Drag or use up/down arrow keys to resize"><span></span></button>
 		<section class="panel settings-panel" aria-labelledby="setup-title"><h2 id="setup-title">Lesson settings</h2><div class="panel-body mt-4"><div class="space-y-4">
@@ -236,8 +233,14 @@
 				<input bind:this={fileInput} type="file" multiple accept=".md" class="sr-only" tabindex="-1" aria-label="Choose Markdown context files" onchange={(event) => { addFiles(event.currentTarget.files); event.currentTarget.value = ''; }} />
 				{#if uploadError}<p role="alert" class="text-sm text-destructive">{uploadError}</p>{/if}
 				<ul class="divide-y">
-					{#each data.files as file}<li class="flex items-center gap-2 py-3 text-sm"><FileText class="size-4 shrink-0 text-muted-foreground" /><span class="break-all">{file}</span><span class="ml-auto text-sm text-muted-foreground">Existing</span></li>{/each}
-					{#each pendingFiles as file}<li class="flex items-center gap-2 py-2 text-sm"><FileText class="size-4 shrink-0 text-muted-foreground" /><span class="break-all">{file.name}</span><span class="ml-auto text-sm text-muted-foreground">Staged</span><Button size="icon-sm" class="rounded-full font-normal" aria-label={`Remove ${file.name}`} onclick={() => pendingFiles = pendingFiles.filter((item) => item !== file)}><X class="size-4" /></Button></li>{/each}
+					{#each data.files.filter((file) => !pendingFiles.some((item) => item.name === file)) as file}
+						{@const removed = removedFiles.includes(file)}
+						<li class="flex items-center gap-2 py-2 text-sm"><FileText class="size-4 shrink-0 text-muted-foreground" /><span class="break-all" class:line-through={removed}>{file}</span><span class="ml-auto text-sm text-muted-foreground">{removed ? 'Removed on save' : 'Existing'}</span>
+							{#if removed}<Button size="icon-sm" variant="secondary" class="rounded-full font-normal" aria-label={`Keep ${file}`} onclick={() => removedFiles = removedFiles.filter((name) => name !== file)}><Undo class="size-4" /></Button>
+							{:else}<Button size="icon-sm" class="rounded-full font-normal" aria-label={`Remove ${file}`} onclick={() => removedFiles = [...removedFiles, file]}><X class="size-4" /></Button>{/if}
+						</li>
+					{/each}
+					{#each pendingFiles as file}<li class="flex items-center gap-2 py-2 text-sm"><FileText class="size-4 shrink-0 text-muted-foreground" /><span class="break-all">{file.name}</span><span class="ml-auto text-sm text-muted-foreground">{data.files.includes(file.name) ? 'Replaces existing' : 'Staged'}</span><Button size="icon-sm" class="rounded-full font-normal" aria-label={`Remove ${file.name}`} onclick={() => pendingFiles = pendingFiles.filter((item) => item !== file)}><X class="size-4" /></Button></li>{/each}
 				</ul>
 				{#if !data.files.length && !pendingFiles.length}<p class="text-sm text-muted-foreground">No context files yet.</p>{/if}
 			</div></div></section>
@@ -259,31 +262,7 @@
 		</ul>
 	</div>
 </section>
-		<button type="button" class="card-resizer" use:resizeCards={2} aria-label="Resize ratings and attendance cards" title="Drag or use up/down arrow keys to resize"><span></span></button>
-		<section class="panel trend-panel" aria-labelledby="attendance-title">
-	<h2 id="attendance-title">Attendance trend</h2>
-	<div class="chart-stat"><strong>{latestAttendance}</strong><span>{attendanceChange} from the previous session</span></div>
-	<div class="chart-space attendance-space" bind:clientWidth={attendanceWidth} bind:clientHeight={attendanceHeight}><svg class="trend-chart" viewBox={`0 0 ${attendanceWidth} ${attendanceHeight}`} role="img" aria-label={`Attendance across five sessions: ${attendance.map((item) => item.count).join(', ')} students`}>
-		<defs><linearGradient id="attendance-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#648d83" stop-opacity="0.22" /><stop offset="100%" stop-color="#648d83" stop-opacity="0" /></linearGradient></defs>
-		{#each attendanceTicks as count}<line x1="32" x2={attendanceWidth - 24} y1={attendanceY(count)} y2={attendanceY(count)} stroke="#ededed" /><text x="8" y={attendanceY(count) + 4}>{count}</text>{/each}
-		<polygon points={`32,${attendanceY(0)} ${attendancePoints} ${attendanceWidth - 24},${attendanceY(0)}`} fill="url(#attendance-fill)" />
-		<polyline points={attendancePoints} fill="none" stroke="#527c72" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-		{#each attendance as item, i}<circle cx={attendanceX(i)} cy={attendanceY(item.count)} r="4" fill="white" stroke="#527c72" stroke-width="2"><title>{item.label}: {item.count} students</title></circle><text x={attendanceX(i)} y={attendanceHeight - 6} text-anchor="middle">{i === attendance.length - 1 ? 'Today' : `S${i + 1}`}</text>{/each}
-	</svg></div>
-</section>
-		</div>
-		{@render widthHandle("ratings and attendance")}
-		<div class="card-column" style:grid-template-rows={`${splits[3]}fr 14px ${100 - splits[3]}fr`}>
-<section class="panel snapshot-panel" aria-labelledby="snapshot-title">
-	<h2 id="snapshot-title">Session snapshot</h2>
-	<div class="panel-body metric-grid">
-		<div><strong>{latestAttendance}</strong><span>Students this session</span></div>
-		<div><strong>{(messageCount / (students.length || 1)).toFixed(1)}</strong><span>Average messages per chat</span></div>
-		<div><strong>{messageCount}</strong><span>Chat messages</span></div>
-		<div><strong>{data.dashboard.usage.tokensUsed.toLocaleString('en-GB')}</strong><span>Tokens used</span></div>
-	</div>
-</section>
-		<button type="button" class="card-resizer" use:resizeCards={3} aria-label="Resize snapshot and feedback cards" title="Drag or use up/down arrow keys to resize"><span></span></button>
+		<button type="button" class="card-resizer" use:resizeCards={2} aria-label="Resize ratings and feedback cards" title="Drag or use up/down arrow keys to resize"><span></span></button>
 		<section class="panel feedback-panel" aria-labelledby="feedback-title">
 			<h2 id="feedback-title">Live feedback</h2>
 			<div class="panel-body mt-4">
@@ -302,11 +281,11 @@
 			</div>
 		</section>
 		</div>
-		{@render widthHandle("snapshot and feedback")}
+		{@render widthHandle("ratings and feedback")}
 		<section class="panel spending-panel" aria-labelledby="spending-title">
 			<h2 id="spending-title">Session spending</h2>
 			<div class="panel-body spending-content">
-				<div class="chart-stat"><strong>{currency.format(totalSpent)}</strong><span>Spent this session</span></div>
+				<div class="chart-stat"><strong>{currency.format(totalSpent)}</strong><span>Spent this session, {dashboard.usage.tokensUsed.toLocaleString('en-GB')} tokens</span></div>
 				<div class="chart-space" bind:clientWidth={spendingWidth} bind:clientHeight={spendingHeight}><svg class="spending-chart" viewBox={`0 0 ${spendingWidth} ${spendingHeight}`} role="img" aria-label={`Cumulative spending: ${spending.map((point) => `${point.time}: ${currency.format(point.amount)}`).join(', ')}`}>
 					<defs><linearGradient id="spending-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#7d8da9" stop-opacity="0.2" /><stop offset="100%" stop-color="#7d8da9" stop-opacity="0" /></linearGradient></defs>
 					{#each [0, 0.5, 1] as fraction}
@@ -327,49 +306,32 @@
 			</div>
 		</section>
 		{@render widthHandle("spending")}
-		{#each students.filter((student) => student.messages.length > 0) as student (student.label)}
-	<section class="panel chat-panel" aria-labelledby={`chat-${student.label}`}>
-		<div class="flex items-center justify-between gap-3"><h2 id={`chat-${student.label}`}>Student {student.label}</h2></div>
-		<p class="mt-1 text-sm text-muted-foreground">{student.messages.length} messages, {student.count} sessions attended</p>
-		<div class="panel-body mt-5 flex flex-col gap-5">
-			{#each student.messages as message}
-				<Message.Root from={message.role === 'user' ? 'user' : 'assistant'}>
-					<Message.Content>
-						<span class="sr-only">{message.role === 'user' ? 'Student' : 'Assistant'}: </span>
-						{#if message.role === 'assistant'}<Message.Response content={message.text} mode="static" />{:else}<p class="whitespace-pre-wrap wrap-break-words">{message.text}</p>{/if}
-					</Message.Content>
-				</Message.Root>
-			{/each}
-		</div>
-	</section>
-	{@render widthHandle(`student ${student.label} chat`)}
-{/each}
 	</div>
 
 </main>
 
-<Dialog.Root bind:open={qrExpanded}>
-	<Dialog.Content class="rounded-[26px] sm:max-w-4xl">
-		<Dialog.Header>
-			<Dialog.Title class="text-2xl md:text-3xl">Join the session</Dialog.Title>
-			<Dialog.Description class="text-base md:text-lg">Scan the QR code, or type the link below on a laptop.</Dialog.Description>
-		</Dialog.Header>
-		<img src={data.qr} alt="Expanded QR code for the student sign-in link" width="640" height="640" class="mx-auto aspect-square max-h-[55dvh] w-full object-contain" />
-		<a href={data.sessionUrl} class="mb-4 break-all text-center font-mono text-2xl font-medium hover:underline md:text-4xl">{data.sessionUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}</a>
-	</Dialog.Content>
-</Dialog.Root>
+<svelte:document
+	onvisibilitychange={() => (visible = document.visibilityState === 'visible')}
+	onfullscreenchange={() => { if (!document.fullscreenElement) presenting = false; }}
+/>
+<svelte:window onkeydown={(event) => { if (presenting && event.key === 'Escape') stopPresenting(); }} />
+
+{#if presenting}
+	<div bind:this={presenter} class="presenter" role="dialog" aria-modal="true" aria-labelledby="presenter-title">
+		<button type="button" class="presenter-close" aria-label="Stop presenting" onclick={stopPresenting}><X class="size-6" /></button>
+		<img src={data.qr} alt="QR code for the lab" width="640" height="640" />
+		<div>
+			<p id="presenter-title" class="presenter-label">Scan the code, or go to</p>
+			<p class="presenter-address">{data.siteAddress}</p>
+			<p class="presenter-note">Laptops are recommended</p>
+		</div>
+	</div>
+{/if}
 
 <Dialog.Root bind:open={confirmEnd}>
 	<Dialog.Content class="rounded-[26px]">
-		<Dialog.Header><Dialog.Title>End this lesson?</Dialog.Title><Dialog.Description>Students will be asked for feedback and won't be able to chat any more.</Dialog.Description></Dialog.Header>
-		<Dialog.Footer><Button class="gap-2 rounded-full px-3 font-normal" onclick={() => confirmEnd = false}>Cancel</Button><form method="POST" action="?/end" use:enhance={() => { confirmEnd = false; }}><Button type="submit" class="gap-2 rounded-full px-3 font-normal">End lesson</Button></form></Dialog.Footer>
-	</Dialog.Content>
-</Dialog.Root>
-
-<Dialog.Root bind:open={confirmShutdown}>
-	<Dialog.Content class="rounded-[26px]">
-		<Dialog.Header><Dialog.Title>Shut down the assistant?</Dialog.Title><Dialog.Description>This stops the server. Nobody will be able to open the app until it is started again.</Dialog.Description></Dialog.Header>
-		<Dialog.Footer><Button class="gap-2 rounded-full px-3 font-normal" onclick={() => confirmShutdown = false}>Cancel</Button><form method="POST" action="?/shutdown" use:enhance={() => { confirmShutdown = false; shutDown = true; return () => {}; }}><Button type="submit" class="gap-2 rounded-full px-3 font-normal">Shut down</Button></form></Dialog.Footer>
+		<Dialog.Header><Dialog.Title>Turn the lab off?</Dialog.Title><Dialog.Description>Students will be asked for feedback and won't be able to chat any more. Anyone else will see that no lab is running.</Dialog.Description></Dialog.Header>
+		<Dialog.Footer><Button class="gap-2 rounded-full px-3 font-normal" onclick={() => confirmEnd = false}>Cancel</Button><form method="POST" action="?/end" use:enhance={() => { confirmEnd = false; }}><Button type="submit" class="gap-2 rounded-full px-3 font-normal">Turn lab off</Button></form></Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
 
@@ -425,13 +387,17 @@
 	.join-content { display: flex; flex: 1; justify-content: center; min-height: 0; padding-block: 4px; }
 	.join-content img { width: 100%; height: 100%; min-height: 0; object-fit: contain; }
 	.dashboard-rail:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
-	.metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 24px; align-content: space-evenly; margin-top: 12px; }
-	.metric-grid strong, .chart-stat strong { display: block; font-size: clamp(24px, 2.8vw, 36px); font-weight: 500; letter-spacing: -0.05em; line-height: 1.1; }
-	.metric-grid span { display: block; margin-top: 8px; font-size: 14px; color: var(--muted-foreground); }
+	.presenter { position: fixed; inset: 0; z-index: 100; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: clamp(32px, 6vw, 96px); padding: 48px; background: var(--background); }
+	.presenter img { width: min(42vw, 80vh); aspect-ratio: 1; }
+	.presenter-close { position: absolute; top: 20px; right: 20px; padding: 8px; border-radius: 999px; color: var(--muted-foreground); }
+	.presenter-close:hover { background: var(--muted); }
+	.presenter-label { font-size: clamp(18px, 2.2vw, 32px); color: var(--muted-foreground); }
+	.presenter-address { font-size: clamp(32px, 5vw, 80px); font-weight: 500; letter-spacing: -0.03em; line-height: 1.1; overflow-wrap: anywhere; }
+	.presenter-note { margin-top: 16px; font-size: clamp(16px, 1.8vw, 26px); color: var(--muted-foreground); }
+	.chart-stat strong { display: block; font-size: clamp(24px, 2.8vw, 36px); font-weight: 500; letter-spacing: -0.05em; line-height: 1.1; }
 	.chart-stat small { font-size: 14px; font-weight: 400; color: var(--muted-foreground); letter-spacing: 0; }
 	.chart-stat { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
 	.chart-stat > span { font-size: 14px; color: var(--muted-foreground); }
-	.attendance-space { margin-top: 8px; }
 	svg text { fill: #777; font-size: 12px; font-family: inherit; }
 	.ratings-content { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 12px; margin-top: 12px; }
 	.ratings-pie { width: 100%; height: 100%; min-height: 0; }

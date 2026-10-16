@@ -4,19 +4,7 @@ import PlanTitle from "./plan-title.svelte";
 import PlanDescription from "./plan-description.svelte";
 import PlanAction from "./plan-action.svelte";
 import PlanContent from "./plan-content.svelte";
-import PlanFooter from "./plan-footer.svelte";
 import PlanTrigger from "./plan-trigger.svelte";
-
-export type {
-	PlanProps,
-	PlanHeaderProps,
-	PlanTitleProps,
-	PlanDescriptionProps,
-	PlanActionProps,
-	PlanContentProps,
-	PlanFooterProps,
-	PlanTriggerProps,
-} from "./types.js";
 
 export {
 	Plan,
@@ -25,7 +13,6 @@ export {
 	PlanDescription,
 	PlanAction,
 	PlanContent,
-	PlanFooter,
 	PlanTrigger,
 	//
 	Plan as Root,
@@ -35,5 +22,4 @@ export {
 	PlanTitle as Title,
 	PlanDescription as Description,
 	PlanAction as Action,
-	PlanFooter as Footer,
 };

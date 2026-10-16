@@ -21,6 +21,7 @@ type Config struct {
 	Address       string
 	DatabaseURL   string
 	InternalToken string
+	Model         string
 }
 
 func loadConfig() (Config, error) {
@@ -28,6 +29,7 @@ func loadConfig() (Config, error) {
 		Address:       cmp.Or(os.Getenv("ADDRESS"), "127.0.0.1:8080"),
 		DatabaseURL:   os.Getenv("DATABASE_URL"),
 		InternalToken: os.Getenv("INTERNAL_TOKEN"),
+		Model:         cmp.Or(os.Getenv("MODEL"), "claude-haiku-5-5"),
 	}
 
 	var errs []error
@@ -57,7 +59,11 @@ func main() {
 	}
 	defer pool.Close()
 
-	handler := api.New(db.New(pool), anthropic.NewClient(), cfg.InternalToken)
+	handler, err := api.New(db.New(pool), anthropic.NewClient(), cfg.Model, cfg.InternalToken)
+	if err != nil {
+		slog.Error("invalid config", "err", err)
+		os.Exit(1)
+	}
 	httpServer := &http.Server{Addr: cfg.Address, Handler: handler, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()

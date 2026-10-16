@@ -21,10 +21,10 @@ type ApiUsage struct {
 	CreatedAt        time.Time `json:"createdAt"`
 }
 
-type Attendance struct {
-	SessionStartedAt time.Time `json:"sessionStartedAt"`
-	StudentID        string    `json:"studentId"`
-	JoinedAt         time.Time `json:"joinedAt"`
+type ContextFile struct {
+	Name      string    `json:"name"`
+	Content   string    `json:"content"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type Feedback struct {
@@ -47,6 +47,13 @@ type Message struct {
 	Role             string    `json:"role"`
 	Content          string    `json:"content"`
 	CreatedAt        time.Time `json:"createdAt"`
+}
+
+type Setting struct {
+	ID             bool    `json:"id"`
+	LessonName     string  `json:"lessonName"`
+	SpendingCapUsd float64 `json:"spendingCapUsd"`
+	Resources      []byte  `json:"resources"`
 }
 
 type Struggle struct {

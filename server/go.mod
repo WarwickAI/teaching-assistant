@@ -5,7 +5,6 @@ go 1.27.0
 require (
 	github.com/anthropics/anthropic-sdk-go v1.80.0
 	github.com/jackc/pgx/v5 v5.11.0
-	go.yaml.in/yaml/v3 v3.0.5
 )
 
 require (

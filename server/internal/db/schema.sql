@@ -6,13 +6,6 @@ CREATE TABLE IF NOT EXISTS lesson_sessions (
 CREATE UNIQUE INDEX IF NOT EXISTS one_open_session
     ON lesson_sessions ((true)) WHERE ended_at IS NULL;
 
-CREATE TABLE IF NOT EXISTS attendance (
-    session_started_at timestamptz NOT NULL REFERENCES lesson_sessions (started_at),
-    student_id         text        NOT NULL,
-    joined_at          timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (session_started_at, student_id)
-);
-
 CREATE TABLE IF NOT EXISTS messages (
     id                 bigint      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     session_started_at timestamptz NOT NULL REFERENCES lesson_sessions (started_at),
@@ -54,4 +47,21 @@ CREATE TABLE IF NOT EXISTS api_usage (
     cache_write_tokens bigint      NOT NULL,
     cost_micros        bigint      NOT NULL,
     created_at         timestamptz NOT NULL DEFAULT now()
+);
+
+-- The lesson settings the teacher edits from the dashboard; there is only ever one row.
+CREATE TABLE IF NOT EXISTS settings (
+    id               boolean          PRIMARY KEY DEFAULT true CHECK (id),
+    lesson_name      text             NOT NULL DEFAULT '',
+    spending_cap_usd double precision NOT NULL DEFAULT 10 CHECK (spending_cap_usd >= 0),
+    resources        jsonb            NOT NULL DEFAULT '[]' -- [{"title": ..., "url": ...}]
+);
+
+INSERT INTO settings DEFAULT VALUES ON CONFLICT DO NOTHING;
+
+-- Markdown lesson material the teacher uploads, which goes into the assistant's system prompt.
+CREATE TABLE IF NOT EXISTS context_files (
+    name       text        PRIMARY KEY,
+    content    text        NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
 );

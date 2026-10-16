@@ -12,7 +12,7 @@
 	<div class="pointer-events-none fixed inset-x-0 top-2 z-20 flex justify-center px-4 max-md:hidden">
 		<div class="flex items-center gap-2 rounded-full border bg-background px-4 py-2 text-base text-foreground md:text-sm shadow-[0_0_28px_2px_rgb(0_0_0/0.08)]">
 			<img src={logo} alt="WAI" class="h-2.5 w-auto shrink-0 dark:invert" />
-			<span>{data.lessonName || 'teaching assistant'}</span>
+			<span>{data.lessonName || 'Teaching assistant'}</span>
 		</div>
 	</div>
 	<div class="flex flex-1 flex-col">

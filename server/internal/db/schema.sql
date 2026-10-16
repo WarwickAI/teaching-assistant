@@ -3,6 +3,9 @@ CREATE TABLE IF NOT EXISTS lesson_sessions (
     ended_at   timestamptz CHECK (ended_at > started_at)
 );
 
+-- When the teacher last asked the class for feedback.
+ALTER TABLE lesson_sessions ADD COLUMN IF NOT EXISTS feedback_requested_at timestamptz;
+
 CREATE UNIQUE INDEX IF NOT EXISTS one_open_session
     ON lesson_sessions ((true)) WHERE ended_at IS NULL;
 

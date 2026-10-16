@@ -17,6 +17,10 @@ LIMIT 1;
 UPDATE lesson_sessions SET ended_at = now()
 WHERE ended_at IS NULL;
 
+-- name: RequestFeedback :execrows
+UPDATE lesson_sessions SET feedback_requested_at = now()
+WHERE ended_at IS NULL;
+
 -- Students
 
 -- name: InsertMessage :exec

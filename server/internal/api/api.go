@@ -29,6 +29,7 @@ func New(queries *db.Queries, claude anthropic.Client, model, internalToken stri
 	api.HandleFunc("GET /sessions/latest", s.getLatestSession)
 	api.HandleFunc("POST /sessions", s.startSession)
 	api.HandleFunc("POST /sessions/current/end", s.endSession)
+	api.HandleFunc("POST /sessions/current/request-feedback", s.requestFeedback)
 	api.HandleFunc("POST /join", s.join)
 	api.HandleFunc("POST /chat", s.chat)
 	api.HandleFunc("POST /feedback", s.saveFeedback)

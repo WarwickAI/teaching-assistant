@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
-	import { enhance } from '$app/forms';
+	import { deserialize, enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import type { PageData } from './$types';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
@@ -167,13 +168,54 @@
 		} };
 	}
 
-	function addFiles(files: FileList | null) {
+	// Settings save as they change. Saves run one at a time, so they reach the server in order.
+	let saveStatus = $state('');
+	let unsaved = 0;
+	let saving = Promise.resolve(true);
+	function save(add?: (form: FormData) => void) {
+		const form = new FormData();
+		// A cap still being typed keeps the saved one.
+		form.set('settings', JSON.stringify({ lessonName, resources, spendingCap: validCap ? spendingCap : dashboard.usage.spendingCap }));
+		add?.(form);
+		unsaved++;
+		saveStatus = 'Saving…';
+		return (saving = saving.then(async () => {
+			let ok = false;
+			try {
+				const res = await fetch('?/settings', { method: 'POST', body: form, headers: { 'x-sveltekit-action': 'true' } });
+				ok = deserialize(await res.text()).type === 'success';
+				if (ok) await invalidateAll();
+			} catch {}
+			if (--unsaved === 0 || !ok) saveStatus = ok ? 'All changes saved' : "Couldn't save the last change";
+			return ok;
+		}));
+	}
+
+	async function addFiles(files: FileList | null) {
 		if (!files) return;
 		uploadError = '';
-		for (const file of Array.from(files)) {
-			if (!/\.md$/i.test(file.name)) { uploadError = 'Only .md files are accepted.'; continue; }
-			pendingFiles = [...pendingFiles.filter((item) => item.name !== file.name), file]; // the newest upload of a name wins
-		}
+		const uploads = Array.from(files).filter((file) => /\.md$/i.test(file.name));
+		if (uploads.length < files.length) uploadError = 'Only .md files are accepted.';
+		if (!uploads.length) return;
+		pendingFiles = [...pendingFiles, ...uploads];
+		if (!await save((form) => uploads.forEach((file) => form.append('files', file)))) uploadError = `Couldn't upload ${uploads.map((file) => file.name).join(', ')}.`;
+		pendingFiles = pendingFiles.filter((file) => !uploads.includes(file));
+	}
+
+	// A removed file waits a few seconds before it's deleted, so it can be kept.
+	const removals = new Map<string, ReturnType<typeof setTimeout>>();
+	function removeFile(name: string) {
+		removedFiles = [...removedFiles, name];
+		removals.set(name, setTimeout(async () => {
+			removals.delete(name);
+			await save((form) => form.append('remove', name));
+			removedFiles = removedFiles.filter((item) => item !== name);
+		}, 5000));
+	}
+	function keepFile(name: string) {
+		clearTimeout(removals.get(name));
+		removals.delete(name);
+		removedFiles = removedFiles.filter((item) => item !== name);
 	}
 </script>
 
@@ -186,13 +228,9 @@
 	<h1 class="sr-only">Teacher dashboard</h1>
 	<div class="lesson-actions">
 		<form method="POST" action="?/signout" use:enhance><Button variant="secondary" type="submit" class="gap-2 rounded-full px-3 font-normal">Sign out</Button></form>
-		<form method="POST" action="?/settings" enctype="multipart/form-data" use:enhance={({ formData }) => {
-			formData.set('settings', JSON.stringify({ lessonName, resources, spendingCap }));
-			for (const file of pendingFiles) formData.append('files', file);
-			for (const name of removedFiles) formData.append('remove', name);
-			return async ({ result, update }) => { if (result.type === 'success') { pendingFiles = []; removedFiles = []; } await update(); };
-		}}><Button variant="secondary" type="submit" class="gap-2 rounded-full px-3 font-normal" disabled={!validCap}>Save settings</Button></form>
+		<p class="text-sm text-muted-foreground" aria-live="polite">{saveStatus}</p>
 		{#if data.lessonState === 'started'}
+			<form method="POST" action="?/requestFeedback" use:enhance><Button variant="secondary" type="submit" class="gap-2 rounded-full px-3 font-normal">{data.feedbackRequested ? 'Ask for feedback again' : 'Ask for feedback'}</Button></form>
 			<Button class="gap-2 rounded-full px-3 font-normal" onclick={() => confirmEnd = true}>Turn lab off</Button>
 		{:else}
 			<form method="POST" action="?/start" use:enhance><Button type="submit" class="gap-2 rounded-full px-3 font-normal">Turn lab on</Button></form>
@@ -214,7 +252,7 @@
 		<button type="button" class="card-resizer" use:resizeCards={0} aria-label="Resize join and settings cards" title="Drag or use up/down arrow keys to resize"><span></span></button>
 		<section class="panel settings-panel" aria-labelledby="setup-title"><h2 id="setup-title">Lesson settings</h2><div class="panel-body mt-4"><div class="space-y-4">
 				
-				<div class="space-y-2"><label for="lesson-name" class="text-sm">Lesson name</label><input id="lesson-name" required bind:value={lessonName} class="field" /></div>
+				<div class="space-y-2"><label for="lesson-name" class="text-sm">Lesson name</label><input id="lesson-name" required bind:value={lessonName} onchange={() => save()} class="field" /></div>
 			</div></div></section>
 		</div>
 		{@render widthHandle("join and settings")}
@@ -222,7 +260,7 @@
 <section class="panel resources-panel" aria-labelledby="resources-title"><h2 id="resources-title">Lesson resources</h2><div class="panel-body mt-4"><div>
 				<div class="space-y-3"><h3 class="text-sm">Resources</h3>
 					{#each resources as resource, i}
-						<div class="flex items-start gap-2"><div class="min-w-0 flex-1 space-y-2"><input aria-label={`Resource ${i + 1} title`} placeholder="Title" required bind:value={resource.title} class="field" /><input aria-label={`Resource ${i + 1} URL`} placeholder="https://…" type="url" required bind:value={resource.url} class="field" /></div><button type="button" class="remove-resource" aria-label={`Remove resource ${i + 1}`} onclick={() => resources = resources.filter((_, index) => index !== i)}><X class="size-4" /></button></div>
+						<div class="flex items-start gap-2"><div class="min-w-0 flex-1 space-y-2"><input aria-label={`Resource ${i + 1} title`} placeholder="Title" required bind:value={resource.title} onchange={() => save()} class="field" /><input aria-label={`Resource ${i + 1} URL`} placeholder="https://…" type="url" required bind:value={resource.url} onchange={() => save()} class="field" /></div><button type="button" class="remove-resource" aria-label={`Remove resource ${i + 1}`} onclick={() => { resources = resources.filter((_, index) => index !== i); save(); }}><X class="size-4" /></button></div>
 					{/each}
 					<Button class="gap-2 rounded-full px-3 font-normal" onclick={() => resources = [...resources, { title: '', url: '' }]}>Add resource</Button>
 				</div></div></div></section>
@@ -235,12 +273,12 @@
 				<ul class="divide-y">
 					{#each data.files.filter((file) => !pendingFiles.some((item) => item.name === file)) as file}
 						{@const removed = removedFiles.includes(file)}
-						<li class="flex items-center gap-2 py-2 text-sm"><FileText class="size-4 shrink-0 text-muted-foreground" /><span class="break-all" class:line-through={removed}>{file}</span><span class="ml-auto text-sm text-muted-foreground">{removed ? 'Removed on save' : 'Existing'}</span>
-							{#if removed}<Button size="icon-sm" variant="secondary" class="rounded-full font-normal" aria-label={`Keep ${file}`} onclick={() => removedFiles = removedFiles.filter((name) => name !== file)}><Undo class="size-4" /></Button>
-							{:else}<Button size="icon-sm" class="rounded-full font-normal" aria-label={`Remove ${file}`} onclick={() => removedFiles = [...removedFiles, file]}><X class="size-4" /></Button>{/if}
+						<li class="flex items-center gap-2 py-2 text-sm"><FileText class="size-4 shrink-0 text-muted-foreground" /><span class="break-all" class:line-through={removed}>{file}</span><span class="ml-auto text-sm text-muted-foreground">{removed ? 'Removing…' : 'Existing'}</span>
+							{#if removed}<Button size="icon-sm" variant="secondary" class="rounded-full font-normal" aria-label={`Keep ${file}`} onclick={() => keepFile(file)}><Undo class="size-4" /></Button>
+							{:else}<Button size="icon-sm" class="rounded-full font-normal" aria-label={`Remove ${file}`} onclick={() => removeFile(file)}><X class="size-4" /></Button>{/if}
 						</li>
 					{/each}
-					{#each pendingFiles as file}<li class="flex items-center gap-2 py-2 text-sm"><FileText class="size-4 shrink-0 text-muted-foreground" /><span class="break-all">{file.name}</span><span class="ml-auto text-sm text-muted-foreground">{data.files.includes(file.name) ? 'Replaces existing' : 'Staged'}</span><Button size="icon-sm" class="rounded-full font-normal" aria-label={`Remove ${file.name}`} onclick={() => pendingFiles = pendingFiles.filter((item) => item !== file)}><X class="size-4" /></Button></li>{/each}
+					{#each pendingFiles as file}<li class="flex items-center gap-2 py-2 text-sm"><FileText class="size-4 shrink-0 text-muted-foreground" /><span class="break-all">{file.name}</span><span class="ml-auto text-sm text-muted-foreground">Uploading…</span></li>{/each}
 				</ul>
 				{#if !data.files.length && !pendingFiles.length}<p class="text-sm text-muted-foreground">No context files yet.</p>{/if}
 			</div></div></section>
@@ -264,7 +302,10 @@
 </section>
 		<button type="button" class="card-resizer" use:resizeCards={2} aria-label="Resize ratings and feedback cards" title="Drag or use up/down arrow keys to resize"><span></span></button>
 		<section class="panel feedback-panel" aria-labelledby="feedback-title">
-			<h2 id="feedback-title">Live feedback</h2>
+			<div class="flex items-center justify-between gap-3">
+				<h2 id="feedback-title">Live feedback</h2>
+				<Button href="/admin/feedback.csv" download variant="secondary" class="gap-2 rounded-full px-3 font-normal">Download CSV</Button>
+			</div>
 			<div class="panel-body mt-4">
 				{#each struggles as item}
 					<article class="border-b py-4 first:pt-0 last:border-0 last:pb-0">
@@ -297,7 +338,7 @@
 					{#each spending as point, i}<circle cx={spendingX(i)} cy={spendingY(point.amount)} r="3.5" fill="white" stroke="#7d8da9" stroke-width="2"><title>{point.time}: {currency.format(point.amount)}</title></circle>{#if i % 2 === 0}<text x={spendingX(i)} y={spendingHeight - 6} text-anchor="middle">{point.time}</text>{/if}{/each}
 				</svg></div>
 				<div class="budget-controls">
-					<div class="flex items-center justify-between gap-4"><label for="spending-cap" class="text-sm">Spending cap ($)</label><input id="spending-cap" type="number" min="0" step="0.01" required bind:value={spendingCap} aria-invalid={!validCap} class="field cap-field" /></div>
+					<div class="flex items-center justify-between gap-4"><label for="spending-cap" class="text-sm">Spending cap ($)</label><input id="spending-cap" type="number" min="0" step="0.01" required bind:value={spendingCap} onchange={() => validCap && save()} aria-invalid={!validCap} class="field cap-field" /></div>
 					{#if validCap}
 						<progress class="budget-progress" max="100" value={spendingPercent} aria-label="Spending cap used"></progress>
 						<p class="text-sm text-muted-foreground" aria-live="polite">{totalSpent > spendingCap! ? `${currency.format(totalSpent - spendingCap!)} over cap` : `${currency.format(spendingCap! - totalSpent)} remaining`} of {currency.format(spendingCap!)}</p>
@@ -330,7 +371,7 @@
 
 <Dialog.Root bind:open={confirmEnd}>
 	<Dialog.Content class="rounded-[26px]">
-		<Dialog.Header><Dialog.Title>Turn the lab off?</Dialog.Title><Dialog.Description>Students will be asked for feedback and won't be able to chat any more. Anyone else will see that no lab is running.</Dialog.Description></Dialog.Header>
+		<Dialog.Header><Dialog.Title>Turn the lab off?</Dialog.Title><Dialog.Description>Students won't be able to chat any more, but can still give feedback. Anyone else will see that no lab is running.</Dialog.Description></Dialog.Header>
 		<Dialog.Footer><Button class="gap-2 rounded-full px-3 font-normal" onclick={() => confirmEnd = false}>Cancel</Button><form method="POST" action="?/end" use:enhance={() => { confirmEnd = false; }}><Button type="submit" class="gap-2 rounded-full px-3 font-normal">Turn lab off</Button></form></Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
@@ -391,7 +432,7 @@
 	.presenter img { width: min(42vw, 80vh); aspect-ratio: 1; }
 	.presenter-close { position: absolute; top: 20px; right: 20px; padding: 8px; border-radius: 999px; color: var(--muted-foreground); }
 	.presenter-close:hover { background: var(--muted); }
-	.presenter-label { font-size: clamp(18px, 2.2vw, 32px); color: var(--muted-foreground); }
+	.presenter-label { margin-bottom: 16px; font-size: clamp(16px, 1.8vw, 26px); color: var(--muted-foreground); }
 	.presenter-address { font-size: clamp(32px, 5vw, 80px); font-weight: 500; letter-spacing: -0.03em; line-height: 1.1; overflow-wrap: anywhere; }
 	.presenter-note { margin-top: 16px; font-size: clamp(16px, 1.8vw, 26px); color: var(--muted-foreground); }
 	.chart-stat strong { display: block; font-size: clamp(24px, 2.8vw, 36px); font-weight: 500; letter-spacing: -0.05em; line-height: 1.1; }

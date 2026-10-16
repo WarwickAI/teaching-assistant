@@ -11,7 +11,8 @@ type Options = {
 
 /** Types out a string, deletes it, then types the next one from `next`, forever.
  *
- * Must be created during component initialisation. With reduced motion, the first string is shown statically.
+ * Must be created during component initialisation. With reduced motion, or on touch screens, the first string is shown statically:
+ * iOS Safari treats a tap on a field whose placeholder keeps changing as a hover, so the field never takes focus.
  *
  * ## Usage
  * ```svelte
@@ -31,7 +32,7 @@ export class UseTypewriter {
 		$effect(() => untrack(() => {
 			let target = next();
 
-			if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+			if (window.matchMedia("(prefers-reduced-motion: reduce), (hover: none)").matches) {
 				this.#text = target;
 				return;
 			}

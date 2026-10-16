@@ -51,3 +51,17 @@ func (s *server) endSession(w http.ResponseWriter, r *http.Request) {
 	slog.Info("lesson ended")
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// requestFeedback asks the students in the open lesson for feedback, which their pages pick up when they next refresh.
+func (s *server) requestFeedback(w http.ResponseWriter, r *http.Request) {
+	requested, err := s.queries.RequestFeedback(r.Context())
+	if err != nil {
+		internalError(w, "request feedback", err)
+		return
+	}
+	if requested == 0 {
+		http.Error(w, "no lesson in progress", http.StatusConflict)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

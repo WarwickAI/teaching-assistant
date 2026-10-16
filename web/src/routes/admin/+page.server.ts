@@ -4,8 +4,7 @@ import QRCode from 'qrcode';
 import { api } from '$lib/server/api';
 import { requireTeacher, signOutTeacher } from '$lib/server/auth';
 import { loadDashboard } from '$lib/server/dashboard';
-import { getLatestSession, lessonState, startLesson, endLesson } from '$lib/server/lesson';
-import { getSettings } from '$lib/server/settings';
+import { getLatestSession, lessonState, startLesson, endLesson, requestFeedback } from '$lib/server/lesson';
 import type { Actions, PageServerLoad } from './$types';
 
 async function listFiles(): Promise<string[]> {
@@ -18,18 +17,23 @@ async function check(res: Response, what: string) {
 	if (!res.ok) error(502, `Couldn't ${what}`);
 }
 
-export const load: PageServerLoad = async ({ cookies, url, setHeaders }) => {
+// The QR code for each address the site is served on, made once rather than on every reload.
+const qrCodes = new Map<string, Promise<string>>();
+
+export const load: PageServerLoad = async ({ cookies, url, setHeaders, parent }) => {
 	requireTeacher(cookies);
 	setHeaders({ 'cache-control': 'no-store' });
-	const [settings, files, session, dashboard] = await Promise.all([getSettings(), listFiles(), getLatestSession(), loadDashboard()]);
+	const [{ lessonName, lessonResources }, files, session, dashboard] = await Promise.all([parent(), listFiles(), getLatestSession(), loadDashboard()]);
 	const state = lessonState(session);
-	const qr = await QRCode.toDataURL(`${url.origin}/`, { width: 640, margin: 2 });
+	if (!qrCodes.has(url.origin)) qrCodes.set(url.origin, QRCode.toDataURL(`${url.origin}/`, { width: 640, margin: 2 }));
+	const qr = await qrCodes.get(url.origin)!;
 	return {
 		siteAddress: url.host,
 		lessonState: state,
+		feedbackRequested: state === 'started' && !!session?.feedbackRequestedAt,
 		dashboard,
 		qr,
-		config: { lessonName: settings.lessonName, resources: settings.resources },
+		config: { lessonName, resources: lessonResources },
 		files
 	};
 };
@@ -38,6 +42,7 @@ export const actions = {
 	signout: ({ cookies }) => { requireTeacher(cookies); signOutTeacher(cookies); redirect(303, '/'); },
 	start: async ({ cookies }) => { requireTeacher(cookies); if (lessonState(await getLatestSession()) !== 'started') await startLesson(); },
 	end: async ({ cookies }) => { requireTeacher(cookies); if (lessonState(await getLatestSession()) === 'started') await endLesson(); },
+	requestFeedback: async ({ cookies }) => { requireTeacher(cookies); await requestFeedback(); },
 	settings: async ({ cookies, request }) => {
 		requireTeacher(cookies);
 		const form = await request.formData();

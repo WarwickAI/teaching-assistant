@@ -43,14 +43,30 @@
 	let comments = $state('');
 	let feedbackSubmitted = $state(false);
 
+	// Checks a small status endpoint, and reloads the page's data only when the lab, the feedback request or the settings change.
 	$effect(() => {
 		if (data.lessonState !== 'started') return;
-		// Only while the page is on screen, so a forgotten tab doesn't keep the server awake.
-		const timer = setInterval(() => document.visibilityState === 'visible' && invalidateAll(), 5000);
+		const { lessonState, feedbackRequestedAt, lessonName, lessonResources } = data;
+		const current = JSON.stringify({ lessonState, feedbackRequestedAt, lessonName, lessonResources });
+		const check = async () => {
+			// Only while the page is on screen, so a forgotten tab doesn't keep the server awake.
+			if (document.visibilityState !== 'visible') return;
+			try {
+				if (JSON.stringify(await (await fetch('/api/status')).json()) !== current) await invalidateAll();
+			} catch {}
+		};
+		const timer = setInterval(check, 5000);
 		return () => clearInterval(timer);
 	});
+	// Opens once each time the teacher asks for feedback, remembered across reloads.
 	$effect(() => {
-		if (lessonEnded && data.studentId && !feedbackSubmitted) feedbackOpen = true;
+		const requested = data.feedbackRequestedAt;
+		if (!requested || !data.studentId || feedbackSubmitted) return;
+		let seen = null;
+		try { seen = localStorage.getItem('feedback-requested-at'); } catch {}
+		if (seen === requested) return;
+		feedbackOpen = true;
+		try { localStorage.setItem('feedback-requested-at', requested); } catch {}
 	});
 
 	const prompts = [
@@ -60,6 +76,10 @@
 	];
 	let promptIndex = -1;
 	const promptPlaceholder = new UseTypewriter(() => prompts[(promptIndex = (promptIndex + 1) % prompts.length)]);
+
+	const exampleIds = ['2154321', 'u2287654', '2203918'];
+	let idIndex = -1;
+	const idPlaceholder = new UseTypewriter(() => exampleIds[(idIndex = (idIndex + 1) % exampleIds.length)]);
 </script>
 
 <svelte:window onscroll={updatePinned} />
@@ -81,7 +101,7 @@
 			<div class="space-y-2">
 				<label for="student-id" class="block text-sm text-muted-foreground">Student ID</label>
 				<!-- svelte-ignore a11y_autofocus -->
-				<input id="student-id" name="student_id" inputmode="numeric" autocomplete="off" placeholder="The 7 digits on your university card" required autofocus aria-invalid={form?.invalidStudentId ?? false} class="h-10 w-full rounded-xl border bg-white px-3 text-base outline-none focus-visible:border-stone-500 focus-visible:ring-2 focus-visible:ring-stone-200" />
+				<input id="student-id" name="student_id" inputmode="numeric" autocomplete="off" placeholder={idPlaceholder.text} required autofocus aria-invalid={form?.invalidStudentId ?? false} class="h-10 w-full rounded-xl border bg-white px-3 text-base outline-none focus-visible:border-stone-500 focus-visible:ring-2 focus-visible:ring-stone-200" />
 				{#if form?.invalidStudentId}<p role="alert" class="text-sm text-destructive">That doesn't look like a student ID. It's the 7-digit number on your university card, like 2154321.</p>{/if}
 			</div>
 			<Button type="submit" class="h-10 w-full rounded-full font-normal">Sign in</Button>

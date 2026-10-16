@@ -36,8 +36,9 @@ type Feedback struct {
 }
 
 type LessonSession struct {
-	StartedAt time.Time  `json:"startedAt"`
-	EndedAt   *time.Time `json:"endedAt"`
+	StartedAt           time.Time  `json:"startedAt"`
+	EndedAt             *time.Time `json:"endedAt"`
+	FeedbackRequestedAt *time.Time `json:"feedbackRequestedAt"`
 }
 
 type Message struct {

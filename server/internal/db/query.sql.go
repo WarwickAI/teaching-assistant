@@ -11,14 +11,14 @@ import (
 )
 
 const currentSession = `-- name: CurrentSession :one
-SELECT started_at, ended_at FROM lesson_sessions
+SELECT started_at, ended_at, feedback_requested_at FROM lesson_sessions
 WHERE ended_at IS NULL
 `
 
 func (q *Queries) CurrentSession(ctx context.Context) (LessonSession, error) {
 	row := q.db.QueryRow(ctx, currentSession)
 	var i LessonSession
-	err := row.Scan(&i.StartedAt, &i.EndedAt)
+	err := row.Scan(&i.StartedAt, &i.EndedAt, &i.FeedbackRequestedAt)
 	return i, err
 }
 
@@ -144,7 +144,7 @@ func (q *Queries) InsertUsage(ctx context.Context, arg InsertUsageParams) error 
 }
 
 const latestSession = `-- name: LatestSession :one
-SELECT started_at, ended_at FROM lesson_sessions
+SELECT started_at, ended_at, feedback_requested_at FROM lesson_sessions
 ORDER BY started_at DESC
 LIMIT 1
 `
@@ -152,7 +152,7 @@ LIMIT 1
 func (q *Queries) LatestSession(ctx context.Context) (LessonSession, error) {
 	row := q.db.QueryRow(ctx, latestSession)
 	var i LessonSession
-	err := row.Scan(&i.StartedAt, &i.EndedAt)
+	err := row.Scan(&i.StartedAt, &i.EndedAt, &i.FeedbackRequestedAt)
 	return i, err
 }
 
@@ -258,6 +258,19 @@ type PutContextFileParams struct {
 func (q *Queries) PutContextFile(ctx context.Context, arg PutContextFileParams) error {
 	_, err := q.db.Exec(ctx, putContextFile, arg.Name, arg.Content)
 	return err
+}
+
+const requestFeedback = `-- name: RequestFeedback :execrows
+UPDATE lesson_sessions SET feedback_requested_at = now()
+WHERE ended_at IS NULL
+`
+
+func (q *Queries) RequestFeedback(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, requestFeedback)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const saveFeedback = `-- name: SaveFeedback :exec
@@ -402,14 +415,14 @@ func (q *Queries) SessionUsage(ctx context.Context, sessionStartedAt time.Time) 
 const startSession = `-- name: StartSession :one
 
 INSERT INTO lesson_sessions DEFAULT VALUES
-RETURNING started_at, ended_at
+RETURNING started_at, ended_at, feedback_requested_at
 `
 
 // Lesson sessions
 func (q *Queries) StartSession(ctx context.Context) (LessonSession, error) {
 	row := q.db.QueryRow(ctx, startSession)
 	var i LessonSession
-	err := row.Scan(&i.StartedAt, &i.EndedAt)
+	err := row.Scan(&i.StartedAt, &i.EndedAt, &i.FeedbackRequestedAt)
 	return i, err
 }
 

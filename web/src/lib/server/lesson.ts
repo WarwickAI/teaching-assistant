@@ -2,7 +2,7 @@ import type { UIMessage } from 'ai';
 import { api } from './api';
 
 export type LessonState = 'waiting' | 'started' | 'ended';
-type Session = { startedAt: string; endedAt: string | null };
+type Session = { startedAt: string; endedAt: string | null; feedbackRequestedAt: string | null };
 
 async function check(res: Response, what: string) {
 	if (!res.ok && res.status !== 404 && res.status !== 409) throw new Error(`Go API returned ${res.status} ${what}`);
@@ -24,6 +24,10 @@ export async function startLesson() {
 
 export async function endLesson() {
 	await check(await api('/sessions/current/end', { method: 'POST' }), 'ending the lesson');
+}
+
+export async function requestFeedback() {
+	await check(await api('/sessions/current/request-feedback', { method: 'POST' }), 'asking for feedback');
 }
 
 // The student's conversation in the open lesson, if there is one.

@@ -2,7 +2,6 @@ import { resolve } from '$app/paths';
 import { fail, redirect } from '@sveltejs/kit';
 import type { UIMessage } from 'ai';
 import { api } from '$lib/server/api';
-import { getSettings } from '$lib/server/settings';
 import { getLatestSession, lessonState, loadConversation } from '$lib/server/lesson';
 import { parseStudentId } from '$lib/student-id';
 import type { Actions, PageServerLoad } from './$types';
@@ -16,15 +15,16 @@ function resourceKind(url: URL): ResourceKind {
 	return 'link';
 }
 
-export const load: PageServerLoad = async ({ cookies }) => {
-	const state = lessonState(await getLatestSession());
+export const load: PageServerLoad = async ({ cookies, parent }) => {
+	const [session, { lessonResources }] = await Promise.all([getLatestSession(), parent()]);
+	const state = lessonState(session);
 	const studentId = parseStudentId(cookies.get('student_id') ?? '');
-	const resources = (await getSettings()).resources.flatMap(({ title, url }) =>
+	const resources = lessonResources.flatMap(({ title, url }) =>
 		URL.canParse(url) ? [{ title: title.trim(), url, kind: resourceKind(new URL(url)) }] : []
 	);
-	// Until the student gives their ID in the chat, there's no conversation to load.
+	// Until the student signs in, there's no conversation to load.
 	const messages: UIMessage[] = studentId && state === 'started' ? await loadConversation(studentId) : [];
-	return { studentId, resources, lessonState: state, messages };
+	return { studentId, resources, lessonState: state, messages, feedbackRequestedAt: session?.feedbackRequestedAt ?? null };
 };
 
 export const actions = {

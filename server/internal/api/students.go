@@ -36,7 +36,7 @@ func (s *server) join(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, messages)
 }
 
-// saveFeedback attaches feedback to the latest lesson, since students give it after the lesson ends.
+// saveFeedback attaches feedback to the latest lesson.
 func (s *server) saveFeedback(w http.ResponseWriter, r *http.Request) {
 	student, ok := studentID(r)
 	var body struct {

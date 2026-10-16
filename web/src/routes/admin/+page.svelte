@@ -10,6 +10,7 @@
 	import FileText from '@lucide/svelte/icons/file-text';
 	import X from '@lucide/svelte/icons/x';
 	import Undo from '@lucide/svelte/icons/undo-2';
+	import MessageSquare from '@lucide/svelte/icons/message-square';
 
 	let { data }: { data: PageData } = $props();
 	// The page load gives the first snapshot; the stream replaces it every 3 seconds.
@@ -226,11 +227,13 @@
 
 <main class="teacher-dashboard">
 	<h1 class="sr-only">Teacher dashboard</h1>
+	{#if data.lessonState === 'started'}
+		<form method="POST" action="?/requestFeedback" use:enhance class="feedback-action"><Button variant="secondary" type="submit" class="gap-2 rounded-full px-3 font-normal"><MessageSquare class="size-4" aria-hidden="true" />{data.feedbackRequested ? 'Ask for feedback again' : 'Ask for feedback'}</Button></form>
+	{/if}
 	<div class="lesson-actions">
 		<form method="POST" action="?/signout" use:enhance><Button variant="secondary" type="submit" class="gap-2 rounded-full px-3 font-normal">Sign out</Button></form>
 		<p class="text-sm text-muted-foreground" aria-live="polite">{saveStatus}</p>
 		{#if data.lessonState === 'started'}
-			<form method="POST" action="?/requestFeedback" use:enhance><Button variant="secondary" type="submit" class="gap-2 rounded-full px-3 font-normal">{data.feedbackRequested ? 'Ask for feedback again' : 'Ask for feedback'}</Button></form>
 			<Button class="gap-2 rounded-full px-3 font-normal" onclick={() => confirmEnd = true}>Turn lab off</Button>
 		{:else}
 			<form method="POST" action="?/start" use:enhance><Button type="submit" class="gap-2 rounded-full px-3 font-normal">Turn lab on</Button></form>
@@ -371,7 +374,7 @@
 
 <Dialog.Root bind:open={confirmEnd}>
 	<Dialog.Content class="rounded-[26px]">
-		<Dialog.Header><Dialog.Title>Turn the lab off?</Dialog.Title><Dialog.Description>Students won't be able to chat any more, but can still give feedback. Anyone else will see that no lab is running.</Dialog.Description></Dialog.Header>
+		<Dialog.Header><Dialog.Title>Turn the lab off?</Dialog.Title><Dialog.Description>Students won't be able to chat any more, and will see that no lab is running.</Dialog.Description></Dialog.Header>
 		<Dialog.Footer><Button class="gap-2 rounded-full px-3 font-normal" onclick={() => confirmEnd = false}>Cancel</Button><form method="POST" action="?/end" use:enhance={() => { confirmEnd = false; }}><Button type="submit" class="gap-2 rounded-full px-3 font-normal">Turn lab off</Button></form></Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
@@ -388,6 +391,7 @@
 		background: #fff;
 	}
 	.lesson-actions { position: fixed; top: 8px; right: 20px; z-index: 30; display: flex; align-items: center; gap: 8px; }
+	.feedback-action { position: fixed; top: 8px; left: 20px; z-index: 30; }
 	.dashboard-rail {
 		position: relative;
 		display: flex;
@@ -456,6 +460,7 @@
 	@media (max-width: 900px) {
 		.teacher-dashboard { padding-block: 116px; }
 		.lesson-actions { top: 54px; right: 16px; }
+		.feedback-action { top: 54px; left: 16px; }
 	}
 	@media (max-width: 600px) {
 		.dashboard-rail { padding-inline: 12px; scroll-padding-inline: 12px; }

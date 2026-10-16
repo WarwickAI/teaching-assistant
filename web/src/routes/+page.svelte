@@ -25,9 +25,7 @@
 	let draft = $state('');
 	// Seeded once from the saved conversation; afterwards Chat owns the messages.
 	const chat = new Chat({ messages: untrack(() => data.messages) });
-	let lessonEnded = $derived(data.lessonState === 'ended');
-	// Students already in a lab that just ended stay, to give feedback.
-	let off = $derived(data.lessonState === 'waiting' || (lessonEnded && !data.studentId));
+	let off = $derived(data.lessonState !== 'started');
 
 	// Follow new text as it streams in, unless the student has scrolled up to read.
 	let pinned = true;
@@ -195,19 +193,6 @@
 
 	<div class="sticky bottom-0 z-20 pb-4 md:pb-[40px]">
 		<div class="absolute inset-x-0 top-1/2 bottom-0 md:top-[calc((100%-40px)/2)] bg-background" aria-hidden="true"></div>
-		{#if lessonEnded}
-			<div class="relative flex flex-col items-center gap-3 rounded-[26px] bg-background p-5 text-center border md:border-0 md:shadow-[0_0_28px_2px_rgb(0_0_0/0.08)]" role="status">
-				{#if feedbackSubmitted}
-					<p class="text-sm">Thank you for participating!</p>
-				{:else}
-					<p class="text-sm">The lab has ended.</p>
-					<Button variant="secondary" class="gap-2 rounded-full px-3 font-normal" onclick={() => { feedbackOpen = true; }}>
-						<MessageSquare class="size-4" aria-hidden="true" />
-						Give feedback
-					</Button>
-				{/if}
-			</div>
-		{:else}
 		<PromptInput.Root
 			class="relative rounded-[26px] border-0 ring-1 ring-foreground/10 md:shadow-[0_0_28px_2px_rgb(0_0_0/0.08)]"
 			onSubmit={({ text }) => { pinned = true; void chat.sendMessage({ text }); }}
@@ -229,7 +214,6 @@
 				</div>
 			</PromptInput.Toolbar>
 		</PromptInput.Root>
-		{/if}
 	</div>
 </main>
 {/if}

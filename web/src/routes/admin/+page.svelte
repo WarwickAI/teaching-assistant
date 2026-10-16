@@ -473,16 +473,25 @@
 	.remove-resource:hover { color: var(--foreground); }
 	.remove-resource:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 	.field { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; font-size: 14px; background: var(--background); }
-	.field:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+	.field:focus-visible { outline: 2px solid var(--ring); outline-offset: -1px; } /* inside the edge, so scrolling cards don't clip it */
 	@media (max-width: 900px) {
 		.teacher-dashboard { padding-block: 116px; }
 		.lesson-actions { top: 54px; right: 16px; }
 		.feedback-action { top: 54px; left: 16px; }
 	}
+	/* On phones the cards stack at their natural height and the page scrolls, instead of a sideways rail of fixed-height cards. */
 	@media (max-width: 600px) {
-		.dashboard-rail { padding-inline: 12px; scroll-padding-inline: 12px; }
-		.card-column { flex-basis: calc(100vw - 40px); }
-		.column-resizer { flex-basis: 12px; }
-		.panel { padding: 14px; }
+		.teacher-dashboard { position: static; display: flex; flex-flow: row wrap; align-items: center; gap: 8px; min-height: 100dvh; padding: 16px 12px 32px; overflow: visible; }
+		.feedback-action, .lesson-actions { position: static; }
+		.lesson-actions { margin-left: auto; }
+		.dashboard-rail { flex: 0 0 100%; flex-direction: column; gap: 12px; padding: 8px 0 0; overflow: visible; }
+		.card-column { display: flex; flex-direction: column; gap: 12px; flex: none; }
+		.card-resizer, .column-resizer { display: none; }
+		.panel { padding: 16px; overflow: visible; }
+		.panel-body { flex: none; overflow: visible; }
+		.feedback-panel .panel-body, .attendance-panel .panel-body { max-height: 360px; overflow-y: auto; }
+		.join-content img { width: min(100%, 280px); height: auto; }
+		.chart-space { flex: none; height: 200px; }
+		.ratings-pie { height: 180px; }
 	}
 </style>

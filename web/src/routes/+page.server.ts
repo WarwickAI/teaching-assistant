@@ -32,6 +32,12 @@ export const actions = {
 		cookies.delete('student_id', { path: '/' });
 		redirect(303, resolve('/'));
 	},
+	signin: async ({ cookies, request }) => {
+		const studentId = parseStudentId(String((await request.formData()).get('student_id') ?? ''));
+		if (!studentId) return fail(400, { invalidStudentId: true });
+		cookies.set('student_id', studentId, { path: '/', httpOnly: true, sameSite: 'lax' });
+		redirect(303, resolve('/'));
+	},
 	feedback: async ({ cookies, request }) => {
 		const studentId = parseStudentId(cookies.get('student_id') ?? '');
 		if (!studentId) return fail(401);

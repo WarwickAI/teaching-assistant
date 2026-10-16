@@ -18,20 +18,13 @@
 	import * as Plan from '$lib/components/ai-elements/plan';
 	import { Shimmer } from '$lib/components/ai-elements/shimmer';
 	import { UseTypewriter } from '$lib/hooks/use-typewriter.svelte';
-	import { studentIdQuestion } from '$lib/student-id';
+	import type { ActionData } from './$types';
 
-	let { data }: { data: PageData } = $props();
+	let { data, form }: { data: PageData; form: ActionData } = $props();
 	const resourceIcons = { slides: Presentation, notebook: NotebookPen, link: Link };
 	let draft = $state('');
-	// Seeded once from the saved conversation, or the student ID question; afterwards Chat owns the messages.
-	const chat = new Chat({
-		messages: untrack(() => data.studentId ? data.messages : [{ id: 'student-id', role: 'assistant', parts: [{ type: 'text', text: studentIdQuestion }] }]),
-		async onFinish({ message }) {
-			if (!message.parts.some((part) => part.type === 'data-signed-in')) return;
-			await invalidateAll();
-			if (data.messages.length) chat.messages = data.messages; // a returning student picks up where they left off
-		}
-	});
+	// Seeded once from the saved conversation; afterwards Chat owns the messages.
+	const chat = new Chat({ messages: untrack(() => data.messages) });
 	let lessonEnded = $derived(data.lessonState === 'ended');
 	// Students already in a lab that just ended stay, to give feedback.
 	let off = $derived(data.lessonState === 'waiting' || (lessonEnded && !data.studentId));
@@ -77,6 +70,22 @@
 		<h1 class="text-lg font-medium">No lab running right now</h1>
 		<p class="mt-2 text-sm text-muted-foreground">Your instructor will turn it on when the lab starts.</p>
 		<Button class="mt-5 rounded-full px-4 font-normal" onclick={() => location.reload()}>Try again</Button>
+	</section>
+	<a href="/login" class="mt-6 text-sm text-muted-foreground hover:underline">Log in as instructor</a>
+</main>
+{:else if !data.studentId}
+<main class="flex flex-1 flex-col items-center bg-stone-50 px-6 pt-16 pb-6 md:pb-14">
+	<section class="my-auto w-full max-w-sm rounded-[26px] border bg-background p-5 shadow-[0_0_28px_2px_rgb(0_0_0/0.08)]">
+		<!-- Not enhanced, so the page reloads with the student's saved conversation. -->
+		<form method="POST" action="?/signin" class="space-y-4">
+			<div class="space-y-2">
+				<label for="student-id" class="block text-sm text-muted-foreground">Student ID</label>
+				<!-- svelte-ignore a11y_autofocus -->
+				<input id="student-id" name="student_id" inputmode="numeric" autocomplete="off" placeholder="The 7 digits on your university card" required autofocus aria-invalid={form?.invalidStudentId ?? false} class="h-10 w-full rounded-xl border bg-white px-3 text-base outline-none focus-visible:border-stone-500 focus-visible:ring-2 focus-visible:ring-stone-200" />
+				{#if form?.invalidStudentId}<p role="alert" class="text-sm text-destructive">That doesn't look like a student ID. It's the 7-digit number on your university card, like 2154321.</p>{/if}
+			</div>
+			<Button type="submit" class="h-10 w-full rounded-full font-normal">Sign in</Button>
+		</form>
 	</section>
 	<a href="/login" class="mt-6 text-sm text-muted-foreground hover:underline">Log in as instructor</a>
 </main>
@@ -150,8 +159,9 @@
 				{/if}
 			</Plan.Root>
 		</Message.Root>
-		{#each chat.messages as message (message.id)}
-			<Message.Root from={message.role}>
+		{#each chat.messages as message, i (message.id)}
+			<!-- Messages sent in a row sit closer together. -->
+			<Message.Root from={message.role} class={message.role === 'user' && chat.messages[i - 1]?.role === 'user' ? '-mt-4' : ''}>
 				<Message.Content class="text-base md:text-sm">
 					{@const text = message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('')}
 					{#if message.role === 'assistant'}<Message.Response content={text} />{:else}<p class="whitespace-pre-wrap wrap-break-words">{text}</p>{/if}
@@ -169,8 +179,6 @@
 			<div class="relative flex flex-col items-center gap-3 rounded-[26px] bg-background p-5 text-center border md:border-0 md:shadow-[0_0_28px_2px_rgb(0_0_0/0.08)]" role="status">
 				{#if feedbackSubmitted}
 					<p class="text-sm">Thank you for participating!</p>
-				{:else if !data.studentId}
-					<p class="text-sm">The lab has ended.</p>
 				{:else}
 					<p class="text-sm">The lab has ended.</p>
 					<Button variant="secondary" class="gap-2 rounded-full px-3 font-normal" onclick={() => { feedbackOpen = true; }}>
@@ -185,11 +193,10 @@
 			onSubmit={({ text }) => { pinned = true; void chat.sendMessage({ text }); }}
 		>
 			<PromptInput.Body>
-				<PromptInput.Textarea class="px-4 pt-3 pb-1.5 text-base md:px-5 md:pt-4 md:text-sm" bind:value={draft} placeholder={data.studentId ? promptPlaceholder.text : 'Your student ID'} />
+				<PromptInput.Textarea class="px-4 pt-3 pb-1.5 text-base md:px-5 md:pt-4 md:text-sm" bind:value={draft} placeholder={promptPlaceholder.text} />
 			</PromptInput.Body>
 			<PromptInput.Toolbar class="justify-between px-2 pt-0 pb-2">
 				<div class="ml-auto flex shrink-0 items-center gap-2">
-					{#if data.studentId}
 					<Button variant="secondary" type="submit" form="signout-form" class="gap-2 rounded-full px-3 font-normal">
 						<LogOut class="size-4" aria-hidden="true" />
 						Sign out
@@ -198,7 +205,6 @@
 						<MessageSquare class="size-4" aria-hidden="true" />
 						Give feedback
 					</Button>
-					{/if}
 					<PromptInput.Submit data-prompt-input-submit class="grid place-items-center gap-0 rounded-full p-0" status={chat.status} onStop={() => chat.stop()} disabled={chat.status === 'ready' && !draft.trim()} />
 				</div>
 			</PromptInput.Toolbar>

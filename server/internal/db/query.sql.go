@@ -10,6 +10,41 @@ import (
 	"time"
 )
 
+const attendanceHistory = `-- name: AttendanceHistory :many
+SELECT s.started_at, s.ended_at, COUNT(a.student_id)::bigint AS students
+FROM lesson_sessions s
+LEFT JOIN attendance a ON a.session_started_at = s.started_at
+GROUP BY s.started_at, s.ended_at
+ORDER BY s.started_at DESC
+LIMIT 20
+`
+
+type AttendanceHistoryRow struct {
+	StartedAt time.Time  `json:"startedAt"`
+	EndedAt   *time.Time `json:"endedAt"`
+	Students  int64      `json:"students"`
+}
+
+func (q *Queries) AttendanceHistory(ctx context.Context) ([]AttendanceHistoryRow, error) {
+	rows, err := q.db.Query(ctx, attendanceHistory)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AttendanceHistoryRow{}
+	for rows.Next() {
+		var i AttendanceHistoryRow
+		if err := rows.Scan(&i.StartedAt, &i.EndedAt, &i.Students); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const currentSession = `-- name: CurrentSession :one
 SELECT started_at, ended_at, feedback_requested_at FROM lesson_sessions
 WHERE ended_at IS NULL
@@ -257,6 +292,22 @@ type PutContextFileParams struct {
 
 func (q *Queries) PutContextFile(ctx context.Context, arg PutContextFileParams) error {
 	_, err := q.db.Exec(ctx, putContextFile, arg.Name, arg.Content)
+	return err
+}
+
+const recordAttendance = `-- name: RecordAttendance :exec
+INSERT INTO attendance (session_started_at, student_id)
+VALUES ($1, $2)
+ON CONFLICT DO NOTHING
+`
+
+type RecordAttendanceParams struct {
+	SessionStartedAt time.Time `json:"sessionStartedAt"`
+	StudentID        string    `json:"studentId"`
+}
+
+func (q *Queries) RecordAttendance(ctx context.Context, arg RecordAttendanceParams) error {
+	_, err := q.db.Exec(ctx, recordAttendance, arg.SessionStartedAt, arg.StudentID)
 	return err
 }
 

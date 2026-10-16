@@ -52,6 +52,20 @@ CREATE TABLE IF NOT EXISTS api_usage (
     created_at         timestamptz NOT NULL DEFAULT now()
 );
 
+-- Each student who joined each lesson.
+CREATE TABLE IF NOT EXISTS attendance (
+    session_started_at timestamptz NOT NULL REFERENCES lesson_sessions (started_at),
+    student_id         text        NOT NULL,
+    joined_at          timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (session_started_at, student_id)
+);
+
+-- Lessons from before attendance was recorded count the students who chatted.
+INSERT INTO attendance (session_started_at, student_id, joined_at)
+SELECT session_started_at, student_id, MIN(created_at) FROM messages
+GROUP BY session_started_at, student_id
+ON CONFLICT DO NOTHING;
+
 -- The lesson settings the teacher edits from the dashboard; there is only ever one row.
 CREATE TABLE IF NOT EXISTS settings (
     id               boolean          PRIMARY KEY DEFAULT true CHECK (id),

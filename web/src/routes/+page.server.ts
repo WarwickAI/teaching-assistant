@@ -3,6 +3,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import type { UIMessage } from 'ai';
 import { api } from '$lib/server/api';
 import { getLatestSession, lessonState, loadConversation } from '$lib/server/lesson';
+import { markOffline, markOnline } from '$lib/server/presence';
 import { parseStudentId } from '$lib/student-id';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -22,6 +23,7 @@ export const load: PageServerLoad = async ({ cookies, parent }) => {
 	const resources = lessonResources.flatMap(({ title, url }) =>
 		URL.canParse(url) ? [{ title: title.trim(), url, kind: resourceKind(new URL(url)) }] : []
 	);
+	if (studentId && state === 'started') markOnline(studentId);
 	// Until the student signs in, there's no conversation to load.
 	const messages: UIMessage[] = studentId && state === 'started' ? await loadConversation(studentId) : [];
 	return { studentId, resources, lessonState: state, messages, feedbackRequestedAt: session?.feedbackRequestedAt ?? null };
@@ -29,6 +31,8 @@ export const load: PageServerLoad = async ({ cookies, parent }) => {
 
 export const actions = {
 	signout: ({ cookies }) => {
+		const studentId = parseStudentId(cookies.get('student_id') ?? '');
+		if (studentId) markOffline(studentId);
 		cookies.delete('student_id', { path: '/' });
 		redirect(303, resolve('/'));
 	},

@@ -11,12 +11,14 @@
 	import X from '@lucide/svelte/icons/x';
 	import Undo from '@lucide/svelte/icons/undo-2';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
+	import LogOut from '@lucide/svelte/icons/log-out';
+	import Download from '@lucide/svelte/icons/download';
 
 	let { data }: { data: PageData } = $props();
 	// The page load gives the first snapshot; the stream replaces it every 3 seconds.
 	let live = $state<PageData['dashboard'] | null>(null);
 	let dashboard = $derived(live ?? data.dashboard);
-	let { feedback, struggles, spending, spent: totalSpent } = $derived(dashboard);
+	let { feedback, struggles, spending, spent: totalSpent, online, attendance } = $derived(dashboard);
 	let visible = $state(true);
 	$effect(() => {
 		if (!visible) return; // a dashboard left in a background tab shouldn't keep the server awake
@@ -71,7 +73,7 @@
 	}));
 
 
-	let splits = $state([78.0339, 45.6483, 50]);
+	let splits = $state([78.0339, 45.6483, 50, 68]);
 
 	function horizontalWheel(node: HTMLElement) {
 		function wheel(event: WheelEvent) {
@@ -187,7 +189,7 @@
 				ok = deserialize(await res.text()).type === 'success';
 				if (ok) await invalidateAll();
 			} catch {}
-			if (--unsaved === 0 || !ok) saveStatus = ok ? 'All changes saved' : "Couldn't save the last change";
+			if (--unsaved === 0 || !ok) saveStatus = ok ? '' : "Couldn't save the last change";
 			return ok;
 		}));
 	}
@@ -231,12 +233,12 @@
 		<form method="POST" action="?/requestFeedback" use:enhance class="feedback-action"><Button variant="secondary" type="submit" class="gap-2 rounded-full px-3 font-normal"><MessageSquare class="size-4" aria-hidden="true" />{data.feedbackRequested ? 'Ask for feedback again' : 'Ask for feedback'}</Button></form>
 	{/if}
 	<div class="lesson-actions">
-		<form method="POST" action="?/signout" use:enhance><Button variant="secondary" type="submit" class="gap-2 rounded-full px-3 font-normal">Sign out</Button></form>
 		<p class="text-sm text-muted-foreground" aria-live="polite">{saveStatus}</p>
+		<form method="POST" action="?/signout" use:enhance><Button variant="secondary" type="submit" class="gap-2 rounded-full px-3 font-normal"><LogOut class="size-4" aria-hidden="true" />Sign out</Button></form>
 		{#if data.lessonState === 'started'}
-			<Button class="gap-2 rounded-full px-3 font-normal" onclick={() => confirmEnd = true}>Turn lab off</Button>
+			<Button class="gap-2 rounded-full px-3 font-normal" onclick={() => confirmEnd = true}>End lab</Button>
 		{:else}
-			<form method="POST" action="?/start" use:enhance><Button type="submit" class="gap-2 rounded-full px-3 font-normal">Turn lab on</Button></form>
+			<form method="POST" action="?/start" use:enhance><Button type="submit" class="gap-2 rounded-full px-3 font-normal">Start lab</Button></form>
 		{/if}
 	</div>
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex (The horizontal scroll region must be keyboard focusable.) -->
@@ -250,7 +252,7 @@
 			<div class="join-content">
 				<img src={data.qr} alt="QR code for the lab" width="640" height="640" />
 			</div>
-			<p class="shrink-0 text-center text-sm text-muted-foreground">{data.siteAddress}{data.lessonState === 'started' ? '' : ', turn the lab on to let students in'}</p>
+			<p class="shrink-0 text-center text-sm text-muted-foreground">{data.siteAddress}{data.lessonState === 'started' ? '' : ', start the lab to let students in'}</p>
 		</section>
 		<button type="button" class="card-resizer" use:resizeCards={0} aria-label="Resize join and settings cards" title="Drag or use up/down arrow keys to resize"><span></span></button>
 		<section class="panel settings-panel" aria-labelledby="setup-title"><h2 id="setup-title">Lesson settings</h2><div class="panel-body mt-4"><div class="space-y-4">
@@ -276,9 +278,9 @@
 				<ul class="divide-y">
 					{#each data.files.filter((file) => !pendingFiles.some((item) => item.name === file)) as file}
 						{@const removed = removedFiles.includes(file)}
-						<li class="flex items-center gap-2 py-2 text-sm"><FileText class="size-4 shrink-0 text-muted-foreground" /><span class="break-all" class:line-through={removed}>{file}</span><span class="ml-auto text-sm text-muted-foreground">{removed ? 'Removing…' : 'Existing'}</span>
-							{#if removed}<Button size="icon-sm" variant="secondary" class="rounded-full font-normal" aria-label={`Keep ${file}`} onclick={() => keepFile(file)}><Undo class="size-4" /></Button>
-							{:else}<Button size="icon-sm" class="rounded-full font-normal" aria-label={`Remove ${file}`} onclick={() => removeFile(file)}><X class="size-4" /></Button>{/if}
+						<li class="flex items-center gap-2 py-2 text-sm"><FileText class="size-4 shrink-0 text-muted-foreground" /><span class="break-all" class:line-through={removed}>{file}</span><span class="ml-auto text-sm text-muted-foreground">{removed ? 'Removing…' : ''}</span>
+							{#if removed}<button type="button" class="remove-resource" aria-label={`Keep ${file}`} onclick={() => keepFile(file)}><Undo class="size-4" /></button>
+							{:else}<button type="button" class="remove-resource" aria-label={`Remove ${file}`} onclick={() => removeFile(file)}><X class="size-4" /></button>{/if}
 						</li>
 					{/each}
 					{#each pendingFiles as file}<li class="flex items-center gap-2 py-2 text-sm"><FileText class="size-4 shrink-0 text-muted-foreground" /><span class="break-all">{file.name}</span><span class="ml-auto text-sm text-muted-foreground">Uploading…</span></li>{/each}
@@ -307,7 +309,7 @@
 		<section class="panel feedback-panel" aria-labelledby="feedback-title">
 			<div class="flex items-center justify-between gap-3">
 				<h2 id="feedback-title">Live feedback</h2>
-				<Button href="/admin/feedback.csv" download variant="secondary" class="gap-2 rounded-full px-3 font-normal">Download CSV</Button>
+				<Button href="/admin/feedback.csv" download variant="secondary" class="gap-2 rounded-full px-3 font-normal"><Download class="size-4" aria-hidden="true" />Download CSV</Button>
 			</div>
 			<div class="panel-body mt-4">
 				{#each struggles as item}
@@ -326,6 +328,7 @@
 		</section>
 		</div>
 		{@render widthHandle("ratings and feedback")}
+		<div class="card-column" style:grid-template-rows={`${splits[3]}fr 14px ${100 - splits[3]}fr`}>
 		<section class="panel spending-panel" aria-labelledby="spending-title">
 			<h2 id="spending-title">Session spending</h2>
 			<div class="panel-body spending-content">
@@ -349,7 +352,21 @@
 				</div>
 			</div>
 		</section>
-		{@render widthHandle("spending")}
+		<button type="button" class="card-resizer" use:resizeCards={3} aria-label="Resize spending and attendance cards" title="Drag or use up/down arrow keys to resize"><span></span></button>
+		<section class="panel attendance-panel" aria-labelledby="attendance-title">
+			<h2 id="attendance-title">Attendance</h2>
+			<div class="chart-stat"><strong>{online}</strong><span>{data.lessonState === 'started' ? 'online now' : 'online, the lab is off'}</span></div>
+			<div class="panel-body mt-4">
+				<ul class="divide-y">
+					{#each attendance as lesson (lesson.id)}
+						<li class="flex justify-between gap-2 py-2 text-sm"><span>{lesson.date}{lesson.current ? ' (now)' : ''}</span><span class="text-muted-foreground">{lesson.students} {lesson.students === 1 ? 'student' : 'students'}</span></li>
+					{/each}
+				</ul>
+				{#if !attendance.length}<p class="text-sm text-muted-foreground">No lessons yet.</p>{/if}
+			</div>
+		</section>
+		</div>
+		{@render widthHandle("spending and attendance")}
 	</div>
 
 </main>
@@ -374,8 +391,8 @@
 
 <Dialog.Root bind:open={confirmEnd}>
 	<Dialog.Content class="rounded-[26px]">
-		<Dialog.Header><Dialog.Title>Turn the lab off?</Dialog.Title><Dialog.Description>Students won't be able to chat any more, and will see that no lab is running.</Dialog.Description></Dialog.Header>
-		<Dialog.Footer><Button class="gap-2 rounded-full px-3 font-normal" onclick={() => confirmEnd = false}>Cancel</Button><form method="POST" action="?/end" use:enhance={() => { confirmEnd = false; }}><Button type="submit" class="gap-2 rounded-full px-3 font-normal">Turn lab off</Button></form></Dialog.Footer>
+		<Dialog.Header><Dialog.Title>End the lab?</Dialog.Title><Dialog.Description>Students won't be able to chat any more, and will see that no lab is running.</Dialog.Description></Dialog.Header>
+		<Dialog.Footer><Button class="gap-2 rounded-full px-3 font-normal" onclick={() => confirmEnd = false}>Cancel</Button><form method="POST" action="?/end" use:enhance={() => { confirmEnd = false; }}><Button type="submit" class="gap-2 rounded-full px-3 font-normal">End lab</Button></form></Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
 
@@ -413,7 +430,7 @@
 	.card-resizer span { width: 32px; height: 3px; border-radius: 2px; background: var(--border); }
 	.card-resizer:hover span, .card-resizer:focus-visible span { background: var(--muted-foreground); }
 	.card-resizer:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
-	.dashboard-rail > .panel, .card-column { flex: 0 0 clamp(300px, 30vw, 390px); }
+	.card-column { flex: 0 0 clamp(300px, 30vw, 390px); }
 	.column-resizer { display: flex; align-items: center; justify-content: center; flex: 0 0 14px; align-self: stretch; padding: 0; border: 0; background: transparent; cursor: col-resize; touch-action: none; }
 	.column-resizer span { width: 3px; height: 32px; border-radius: 2px; background: var(--border); }
 	.column-resizer:hover span, .column-resizer:focus-visible span { background: var(--muted-foreground); }
@@ -464,7 +481,7 @@
 	}
 	@media (max-width: 600px) {
 		.dashboard-rail { padding-inline: 12px; scroll-padding-inline: 12px; }
-		.dashboard-rail > .panel, .card-column { flex-basis: calc(100vw - 40px); }
+		.card-column { flex-basis: calc(100vw - 40px); }
 		.column-resizer { flex-basis: 12px; }
 		.panel { padding: 14px; }
 	}

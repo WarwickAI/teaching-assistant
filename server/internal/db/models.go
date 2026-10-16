@@ -21,6 +21,12 @@ type ApiUsage struct {
 	CreatedAt        time.Time `json:"createdAt"`
 }
 
+type Attendance struct {
+	SessionStartedAt time.Time `json:"sessionStartedAt"`
+	StudentID        string    `json:"studentId"`
+	JoinedAt         time.Time `json:"joinedAt"`
+}
+
 type ContextFile struct {
 	Name      string    `json:"name"`
 	Content   string    `json:"content"`

@@ -11,12 +11,13 @@ import (
 )
 
 type dashboard struct {
-	Feedback       []db.Feedback `json:"feedback"`
-	Struggles      []db.Struggle `json:"struggles"`
-	Spending       []spendPoint  `json:"spending"` // cumulative
-	TokensUsed     int64         `json:"tokensUsed"`
-	SpentUSD       float64       `json:"spentUsd"`
-	SpendingCapUSD float64       `json:"spendingCapUsd"`
+	Feedback       []db.Feedback             `json:"feedback"`
+	Struggles      []db.Struggle             `json:"struggles"`
+	Spending       []spendPoint              `json:"spending"` // cumulative
+	TokensUsed     int64                     `json:"tokensUsed"`
+	SpentUSD       float64                   `json:"spentUsd"`
+	SpendingCapUSD float64                   `json:"spendingCapUsd"`
+	Attendance     []db.AttendanceHistoryRow `json:"attendance"` // newest lesson first
 }
 
 type spendPoint struct {
@@ -32,11 +33,12 @@ func (s *server) getDashboard(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(sessErr, pgx.ErrNoRows) {
 		sessErr = nil
 	}
-	if err = errors.Join(err, sessErr); err != nil {
+	attendance, attErr := s.queries.AttendanceHistory(ctx)
+	if err = errors.Join(err, sessErr, attErr); err != nil {
 		internalError(w, "dashboard", err)
 		return
 	}
-	d := dashboard{Feedback: []db.Feedback{}, Struggles: []db.Struggle{}, Spending: []spendPoint{}, SpendingCapUSD: settings.SpendingCapUsd}
+	d := dashboard{Feedback: []db.Feedback{}, Struggles: []db.Struggle{}, Spending: []spendPoint{}, SpendingCapUSD: settings.SpendingCapUsd, Attendance: attendance}
 	if session.StartedAt.IsZero() {
 		writeJSON(w, http.StatusOK, d)
 		return

@@ -32,6 +32,11 @@ SELECT * FROM messages
 WHERE session_started_at = $1 AND student_id = $2
 ORDER BY id;
 
+-- name: RecordAttendance :exec
+INSERT INTO attendance (session_started_at, student_id)
+VALUES ($1, $2)
+ON CONFLICT DO NOTHING;
+
 -- name: SaveFeedback :exec
 INSERT INTO feedback (session_started_at, student_id, rating, comment)
 VALUES ($1, $2, $3, $4)
@@ -99,3 +104,11 @@ ON CONFLICT (name) DO UPDATE SET content = EXCLUDED.content, updated_at = now();
 -- name: DeleteContextFile :exec
 DELETE FROM context_files
 WHERE name = $1;
+
+-- name: AttendanceHistory :many
+SELECT s.started_at, s.ended_at, COUNT(a.student_id)::bigint AS students
+FROM lesson_sessions s
+LEFT JOIN attendance a ON a.session_started_at = s.started_at
+GROUP BY s.started_at, s.ended_at
+ORDER BY s.started_at DESC
+LIMIT 20;

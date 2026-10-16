@@ -16,6 +16,6 @@ export const actions = {
 			return fail(400, { wrongPassword: true });
 		}
 		signInTeacher(cookies);
-		redirect(303, '/teacher');
+		redirect(303, '/admin');
 	}
 } satisfies Actions;

@@ -18,7 +18,7 @@
 	let visible = $state(true);
 	$effect(() => {
 		if (!visible) return; // a dashboard left in a background tab shouldn't keep the server awake
-		const source = new EventSource('/teacher/stream');
+		const source = new EventSource('/admin/stream');
 		source.onmessage = (event) => (live = JSON.parse(event.data));
 		return () => source.close();
 	});

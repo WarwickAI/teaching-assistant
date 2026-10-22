@@ -467,7 +467,7 @@
 		padding: max(81px, calc((100dvh - 670px) / 2)) 24px;
 		scroll-padding-inline: 24px;
 		scrollbar-width: none;
-		overscroll-behavior: contain;
+		overscroll-behavior-y: contain;
 	}
 	.dashboard-rail::-webkit-scrollbar { display: none; }
 	.panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; scroll-snap-align: start; border: 1px solid var(--border); border-radius: 16px; padding: 20px; background: var(--background); }

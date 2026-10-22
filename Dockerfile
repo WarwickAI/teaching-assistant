@@ -1,4 +1,4 @@
-# One container runs both the Go API and the SvelteKit app.
+# One image holds both the Go API and the SvelteKit app; fly.toml runs each as its own process group.
 FROM golang:1.27 AS server
 WORKDIR /src
 COPY server/go.mod server/go.sum ./
@@ -17,15 +17,10 @@ FROM node:24-slim
 WORKDIR /app
 # The dashboard shows times in the server's time zone.
 ENV NODE_ENV=production TZ=Europe/London
-# The Go API listens only inside the container, on a port that can't clash with Railway's $PORT, which SvelteKit serves on.
-ENV ADDRESS=127.0.0.1:9000 GO_API_URL=http://127.0.0.1:9000
-# Railway's proxy sets this to the visitor's IP address, which the instructor login's attempt limit goes by.
-ENV ADDRESS_HEADER=X-Real-IP
 COPY --from=server /server ./server
 # Go checks TLS certificates against the system's CA bundle, which the slim image leaves out.
 COPY --from=server /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=web /src/package.json ./web/
 COPY --from=web /src/node_modules ./web/node_modules
 COPY --from=web /src/build ./web/build
-COPY entrypoint.sh ./
-CMD ["./entrypoint.sh"]
+# No CMD: the [processes] table in fly.toml supplies `./server` and `node web/build`.

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/jackc/pgx/v5"
@@ -45,6 +46,9 @@ func (p price) costMicros(u anthropic.Usage) int64 {
 // maxToolRounds caps the API calls one student message can make.
 const maxToolRounds = 5
 
+// maxMessageChars caps a student message. The whole conversation is sent with every message, so long ones keep costing.
+const maxMessageChars = 4000
+
 var tools = []anthropic.ToolUnionParam{
 	{OfWebSearchTool20250305: &anthropic.WebSearchTool20250305Param{MaxUses: anthropic.Int(2)}},
 	{OfCodeExecutionTool20260120: &anthropic.CodeExecutionTool20260120Param{}},
@@ -71,6 +75,16 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
+	if utf8.RuneCountInString(body.Text) > maxMessageChars {
+		http.Error(w, fmt.Sprintf("Please keep messages under %d characters.", maxMessageChars), http.StatusRequestEntityTooLarge)
+		return
+	}
+	// One reply per student at a time. This also keeps a burst of messages from all passing the spending check at once.
+	if _, busy := s.chatting.LoadOrStore(student, true); busy {
+		http.Error(w, "Please wait for the current answer before sending another message.", http.StatusTooManyRequests)
+		return
+	}
+	defer s.chatting.Delete(student)
 	// Finish and record the reply even if the student closes the page mid-stream.
 	ctx := context.WithoutCancel(r.Context())
 

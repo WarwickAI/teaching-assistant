@@ -18,28 +18,22 @@ import (
 )
 
 type Config struct {
-	Address       string
-	DatabaseURL   string
-	InternalToken string
-	Model         string
+	Address     string
+	DatabaseURL string
+	Model       string
 }
 
 func loadConfig() (Config, error) {
 	cfg := Config{
-		Address:       cmp.Or(os.Getenv("ADDRESS"), "127.0.0.1:8080"),
-		DatabaseURL:   os.Getenv("DATABASE_URL"),
-		InternalToken: os.Getenv("INTERNAL_TOKEN"),
-		Model:         cmp.Or(os.Getenv("MODEL"), "claude-haiku-5-5"),
+		Address:     cmp.Or(os.Getenv("ADDRESS"), "127.0.0.1:8080"),
+		DatabaseURL: os.Getenv("DATABASE_URL"),
+		Model:       cmp.Or(os.Getenv("MODEL"), "claude-haiku-5-5"),
 	}
 
-	var errs []error
 	if cfg.DatabaseURL == "" {
-		errs = append(errs, errors.New("DATABASE_URL is required"))
+		return cfg, errors.New("DATABASE_URL is required")
 	}
-	if cfg.InternalToken == "" {
-		errs = append(errs, errors.New("INTERNAL_TOKEN is required"))
-	}
-	return cfg, errors.Join(errs...)
+	return cfg, nil
 }
 
 func main() {
@@ -59,7 +53,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	handler, err := api.New(db.New(pool), anthropic.NewClient(), cfg.Model, cfg.InternalToken)
+	handler, err := api.New(db.New(pool), anthropic.NewClient(), cfg.Model)
 	if err != nil {
 		slog.Error("invalid config", "err", err)
 		os.Exit(1)

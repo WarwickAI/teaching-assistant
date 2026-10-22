@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/anthropics/anthropic-sdk-go"
 
@@ -16,10 +17,12 @@ type server struct {
 	queries *db.Queries
 	claude  anthropic.Client
 	model   string
+	// chatting holds the IDs of students whose message is being answered, so each gets one reply at a time.
+	chatting sync.Map
 }
 
-// New returns the API's routes. Everything except /healthz requires the internal token.
-func New(queries *db.Queries, claude anthropic.Client, model, internalToken string) (http.Handler, error) {
+// New returns the API's routes. Only SvelteKit can reach them: the API listens on the private network.
+func New(queries *db.Queries, claude anthropic.Client, model string) (http.Handler, error) {
 	if _, ok := prices[model]; !ok {
 		return nil, fmt.Errorf("no price for model %q", model)
 	}
@@ -42,7 +45,7 @@ func New(queries *db.Queries, claude anthropic.Client, model, internalToken stri
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
-	mux.Handle("/", requireInternal(internalToken, api))
+	mux.Handle("/", api)
 	return mux, nil
 }
 

@@ -18,7 +18,7 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse url: %w", err)
 	}
-	// Railway only lets the app sleep once it has sent nothing for 10 minutes, and open connections count.
+	// Idle connections are dropped quickly, so the API holds no more Postgres connections than it is using.
 	cfg.MaxConnIdleTime = 30 * time.Second
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

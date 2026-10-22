@@ -1,0 +1,30 @@
+# Fly.io config for the Go API. A separate app from the SvelteKit front end so that it can have a Flycast
+# (private) address and no public IPs: Fly's proxy wakes it when the web app calls and stops it when idle,
+# and nothing outside the private network can reach it.
+app = "teaching-assistant-api"
+primary_region = "lhr"
+# Give the API time to finish answering (and save) chats in progress when a Machine stops.
+kill_signal = "SIGTERM"
+kill_timeout = 30
+
+[processes]
+  api = "./server"
+
+[env]
+  ADDRESS = "0.0.0.0:9000"
+
+# A plain TCP service on port 9000. The web app reaches it at http://teaching-assistant-api.flycast:9000.
+[[services]]
+  processes = ["api"]
+  protocol = "tcp"
+  internal_port = 9000
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[services.ports]]
+    port = 9000
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

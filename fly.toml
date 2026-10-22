@@ -1,38 +1,30 @@
-# Fly.io config. One image, two process groups: the SvelteKit app faces the internet, the Go API stays private.
+# Fly.io config for the SvelteKit front end. The Go API is a separate app (see fly.api.toml), reached over
+# its Flycast address, so both Machines can stop when idle and start on the next request.
 app = "teaching-assistant"
 primary_region = "lhr"
-# Give both processes time to finish their requests when a Machine stops (Go saves chats still being answered).
+# Give the server time to finish its requests when a Machine stops.
 kill_signal = "SIGTERM"
 kill_timeout = 30
 
 [processes]
   web = "node web/build"
-  api = "./server"
 
 [env]
   # SvelteKit serves on this port; Fly's proxy puts the visitor's IP address in this header.
   PORT = "8080"
   ADDRESS_HEADER = "Fly-Client-IP"
-  # The Go API listens on the private network only; the web Machine reaches it through Fly's internal DNS.
-  ADDRESS = "0.0.0.0:9000"
-  GO_API_URL = "http://api.process.teaching-assistant.internal:9000"
+  # The API's private address. Fly's proxy starts the API Machine if it is stopped.
+  GO_API_URL = "http://teaching-assistant-api.flycast:9000"
 
 [http_service]
   processes = ["web"]
   internal_port = 8080
   force_https = true
-  # Stop the web Machine when idle and start it on the next request. The API Machine keeps running,
-  # since internal DNS only lists running Machines.
+  # Stop the Machine when idle and start it on the next request.
   auto_stop_machines = "stop"
   auto_start_machines = true
   min_machines_running = 0
 
 [[vm]]
-  processes = ["web"]
   size = "shared-cpu-1x"
   memory = "512mb"
-
-[[vm]]
-  processes = ["api"]
-  size = "shared-cpu-1x"
-  memory = "256mb"

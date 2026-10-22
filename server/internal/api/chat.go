@@ -50,7 +50,7 @@ var tools = []anthropic.ToolUnionParam{
 	{OfCodeExecutionTool20260120: &anthropic.CodeExecutionTool20260120Param{}},
 	{OfTool: &anthropic.ToolParam{
 		Name:        "report_struggle",
-		Description: anthropic.String("Tell the teacher a student is still stuck on a topic after your first explanation, which suggests a gap in the lesson material."),
+		Description: anthropic.String("Tell the teacher a student has asked about a topic beyond a clarifying question, which suggests a gap in the lesson material."),
 		Strict:      anthropic.Bool(true),
 		InputSchema: anthropic.ToolInputSchemaParam{
 			Properties: map[string]any{

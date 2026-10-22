@@ -75,6 +75,19 @@
 
 	let splits = $state([78.0339, 45.6483, 50, 68]);
 
+	let workshops = $derived(data.pastWorkshops);
+	const workshopRating = (workshop: (typeof workshops)[number]) => workshop.feedback.reduce((total, item) => total + item.rating, 0) / (workshop.feedback.length || 1);
+	let workshopSummary = $derived.by(() => {
+		const feedback = workshops.flatMap((workshop) => workshop.feedback);
+		return {
+			students: Math.round(workshops.reduce((total, workshop) => total + workshop.students, 0) / (workshops.length || 1)),
+			rating: feedback.reduce((total, item) => total + item.rating, 0) / (feedback.length || 1),
+			spent: workshops.reduce((total, workshop) => total + workshop.spent, 0),
+			tokens: workshops.reduce((total, workshop) => total + workshop.tokens, 0)
+		};
+	});
+	const compact = (n: number) => new Intl.NumberFormat('en-GB', { notation: 'compact', maximumFractionDigits: 1 }).format(n);
+
 	function horizontalWheel(node: HTMLElement) {
 		function wheel(event: WheelEvent) {
 			if (event.ctrlKey || event.shiftKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
@@ -367,6 +380,39 @@
 		</section>
 		</div>
 		{@render widthHandle("spending and attendance")}
+		<div class="card-column wide-column">
+		<section class="panel past-panel" aria-labelledby="past-title">
+			<h2 id="past-title">Past workshops</h2>
+			<div class="past-summary">
+				<div class="chart-stat"><strong>{workshops.length}</strong><span>workshops</span></div>
+				<div class="chart-stat"><strong>{workshopSummary.rating.toFixed(1)}<small> / 5</small></strong><span>average rating</span></div>
+				<div class="chart-stat"><strong>{workshopSummary.students}</strong><span>students on average</span></div>
+				<div class="chart-stat"><strong>{currency.format(workshopSummary.spent)}</strong><span>spent, {compact(workshopSummary.tokens)} tokens</span></div>
+			</div>
+			<div class="panel-body mt-4">
+				{#each workshops as workshop (workshop.id)}
+					{@const comments = workshop.feedback.filter((item) => item.text)}
+					<article class="workshop">
+						<div class="flex items-baseline justify-between gap-3"><h3 class="text-sm font-medium">{workshop.name}</h3><span class="shrink-0 text-sm text-muted-foreground">{workshop.date}</span></div>
+						<dl class="workshop-stats">
+							<div><dt>Students</dt><dd>{workshop.students}</dd></div>
+							<div><dt>Rating</dt><dd>{workshopRating(workshop).toFixed(1)}<span class="text-muted-foreground"> / 5, {workshop.feedback.length} {workshop.feedback.length === 1 ? 'response' : 'responses'}</span></dd></div>
+							<div><dt>Spent</dt><dd>{currency.format(workshop.spent)}<span class="text-muted-foreground">, {compact(workshop.tokens)} tokens</span></dd></div>
+						</dl>
+						{#if comments.length}
+							<details class="workshop-comments">
+								<summary>{comments.length} {comments.length === 1 ? 'comment' : 'comments'}</summary>
+								<ul>
+									{#each comments as item}<li><span class="font-medium">{item.id}</span><span class="ml-2 text-muted-foreground">{item.rating}/5</span><p class="mt-1 leading-6">{item.text}</p></li>{/each}
+								</ul>
+							</details>
+						{/if}
+					</article>
+				{/each}
+				{#if !workshops.length}<p class="text-sm text-muted-foreground">No past workshops yet.</p>{/if}
+			</div>
+		</section>
+		</div>
 	</div>
 
 </main>
@@ -431,6 +477,18 @@
 	.card-resizer:hover span, .card-resizer:focus-visible span { background: var(--muted-foreground); }
 	.card-resizer:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 	.card-column { flex: 0 0 clamp(300px, 30vw, 390px); }
+	.wide-column { flex-basis: clamp(480px, 48vw, 720px); grid-template-rows: 1fr; }
+	.past-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px 16px; }
+	.past-summary .chart-stat { flex-direction: column; align-items: flex-start; gap: 2px; }
+	.past-summary { padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+	.workshop { padding-block: 16px; border-bottom: 1px solid var(--border); }
+	.workshop:last-of-type { border-bottom: 0; }
+	.workshop-stats { display: flex; flex-wrap: wrap; gap: 4px 24px; margin-top: 8px; font-size: 14px; }
+	.workshop-stats dt { font-size: 12px; color: var(--muted-foreground); }
+	.workshop-comments { margin-top: 10px; font-size: 14px; }
+	.workshop-comments summary { cursor: pointer; color: var(--muted-foreground); }
+	.workshop-comments summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 4px; }
+	.workshop-comments ul { display: grid; gap: 12px; margin-top: 10px; padding-left: 12px; border-left: 2px solid var(--border); }
 	.column-resizer { display: flex; align-items: center; justify-content: center; flex: 0 0 14px; align-self: stretch; padding: 0; border: 0; background: transparent; cursor: col-resize; touch-action: none; }
 	.column-resizer span { width: 3px; height: 32px; border-radius: 2px; background: var(--border); }
 	.column-resizer:hover span, .column-resizer:focus-visible span { background: var(--muted-foreground); }
@@ -490,6 +548,7 @@
 		.panel { padding: 16px; overflow: visible; }
 		.panel-body { flex: none; overflow: visible; }
 		.feedback-panel .panel-body, .attendance-panel .panel-body { max-height: 360px; overflow-y: auto; }
+		.past-panel .panel-body { max-height: 480px; overflow-y: auto; }
 		.join-content img { width: min(100%, 280px); height: auto; }
 		.chart-space { flex: none; height: 200px; }
 		.ratings-pie { height: 180px; }
